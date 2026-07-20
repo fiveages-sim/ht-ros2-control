@@ -68,6 +68,7 @@ private:
   double jointVelocityToMotorVelocity(size_t joint_index, double joint_velocity) const;
   double motorVelocityToJointVelocity(size_t joint_index, double motor_velocity) const;
   bool validateMotorCount(const char * context) const;
+  void sendActivateHoldCommand();
   void moveToShutdownHomeThenStop();
 
   std::unique_ptr<hightorque_robot::robot> robot_;

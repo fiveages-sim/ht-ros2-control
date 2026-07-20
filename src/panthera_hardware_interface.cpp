@@ -451,7 +451,7 @@ hardware_interface::CallbackReturn PantheraHardwareInterface::on_init(
     shutdown_home_timeout_sec_, shutdown_home_tolerance_, shutdown_home_velocity_);
 
   use_velocity_commands_ = (control_mode_ == "full_control");
-  use_effort_commands_ = (control_mode_ == "full_control" || control_mode_ == "pd_control");
+  use_effort_commands_ = (control_mode_ == "full_control");
   use_gain_commands_ = (control_mode_ == "full_control");
 
   hw_positions_.resize(info_.joints.size(), std::numeric_limits<double>::quiet_NaN());
@@ -661,7 +661,60 @@ hardware_interface::CallbackReturn PantheraHardwareInterface::on_activate(
   }
   has_last_motor_command_positions_ = true;
 
+  try
+  {
+    sendActivateHoldCommand();
+  }
+  catch (const std::exception & e)
+  {
+    RCLCPP_ERROR(
+      rclcpp::get_logger(kLoggerName),
+      "Failed to send activate hold command: %s", e.what());
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+
   return hardware_interface::CallbackReturn::SUCCESS;
+}
+
+void PantheraHardwareInterface::sendActivateHoldCommand()
+{
+  if (!robot_ || !validateMotorCount("activate_hold"))
+  {
+    return;
+  }
+
+  for (size_t motor_index = 0; motor_index < expected_motors_; ++motor_index)
+  {
+    const bool is_gripper_motor = ((motor_index + 1) % kMotorsPerArm) == 0;
+    if (is_gripper_motor)
+    {
+      continue;
+    }
+
+    const size_t joint_index = jointIndexFromMotorIndex(motor_index);
+    if (joint_index >= info_.joints.size())
+    {
+      continue;
+    }
+
+    const double hold_pos = std::isfinite(hw_positions_[joint_index]) ?
+      hw_positions_[joint_index] : 0.0;
+    const double motor_pos = jointPositionToMotorPosition(joint_index, hold_pos);
+    const double kp = joint_index < kp_gains_.size() ? kp_gains_[joint_index] : 4.0;
+    const double kd = joint_index < kd_gains_.size() ? kd_gains_[joint_index] : 0.5;
+
+    auto * motor = robot_->Motors[motor_index];
+    if (control_mode_ == "full_control" || control_mode_ == "pd_control")
+    {
+      motor->pos_vel_tqe_kp_kd(motor_pos, 0.0f, 0.0f, kp, kd);
+    }
+    else
+    {
+      const double max_tqe = joint_index < max_torques_.size() ? max_torques_[joint_index] : 10.0;
+      motor->pos_vel_MAXtqe(motor_pos, 0.0f, static_cast<float>(max_tqe));
+    }
+  }
+  robot_->motor_send_cmd();
 }
 
 hardware_interface::CallbackReturn PantheraHardwareInterface::on_deactivate(
@@ -983,11 +1036,15 @@ hardware_interface::return_type PantheraHardwareInterface::write(
       hw_commands_velocities_[joint_index] = 0.0;
     }
 
-    double cmd_eff = hw_commands_efforts_[joint_index];
-    if (!std::isfinite(cmd_eff))
+    double cmd_eff = 0.0;
+    if (control_mode_ == "full_control")
     {
-      cmd_eff = 0.0;
-      hw_commands_efforts_[joint_index] = 0.0;
+      cmd_eff = hw_commands_efforts_[joint_index];
+      if (!std::isfinite(cmd_eff))
+      {
+        cmd_eff = 0.0;
+        hw_commands_efforts_[joint_index] = 0.0;
+      }
     }
 
     motor_positions[motor_index] = jointPositionToMotorPosition(joint_index, cmd_pos);
@@ -1052,8 +1109,11 @@ hardware_interface::return_type PantheraHardwareInterface::write(
     {
       raw_velocity = command_delta / dt;
     }
-    else
+    else if (control_mode_ != "pd_control" && std::abs(target_error) > epsilon)
     {
+      // pd_control: rely on MIT kp/kd when the position setpoint is steady.
+      // Chasing steady-state error with velocity feedforward can destabilize
+      // gravity-loaded joints (e.g. joint3) at startup.
       raw_velocity = std::copysign(velocity_limit, target_error);
     }
 
