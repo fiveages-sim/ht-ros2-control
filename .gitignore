@@ -1,0 +1,14 @@
+# Build artifacts
+build/
+**/build/
+*.o
+*.so
+*.a
+
+# IDE / editor
+.vscode/
+.idea/
+*.user
+
+# Misc
+src/Untitled
