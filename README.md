@@ -37,7 +37,7 @@
 `external/motor_cpp` 由 CMake `add_subdirectory` 自动编译，无需像 ARX 那样单独预编译 external SDK。
 
 ```bash
-cd ~/opne-deploy-ws-ht
+cd ~/ht-deploy-ws
 colcon build --packages-select panthera_ros2_control --symlink-install
 source install/setup.bash
 ```
