@@ -1,71 +1,74 @@
-# Panthera HT ROS2 Control
+# Panthera HT ROS2 Control 硬件接口包
 
-ROS2 Control hardware interface for HighTorque Panthera HT.
-Uses vendored `motor_cpp` (`hightorque_motor`) only — no `robot_cpp` / `panthera::Panthera`
-planning or dynamics layer (OCS2 owns control).
+本包提供 HighTorque Panthera HT 机械臂的 ROS2 Control 硬件接口实现。
+使用 vendored `motor_cpp`（`hightorque_motor`），不包含 `robot_cpp` 规划/动力学层（控制由 OCS2 负责）。
 
-## Plugin
+仓库布局与 [arx-ros2-control](https://github.com/fiveages-sim/arx-ros2-control) 一致：ROS 包在仓库根目录，`external/` 下 vendored SDK。
 
-| Plugin | Use |
-|--------|-----|
-| `panthera_ros2_control/PantheraHardwareInterface` | Single and dual arm |
+## 插件
 
-One `SystemInterface` + one `hightorque_robot::robot`. Motor count comes from YAML:
-- single / left / right: **7** motors (`Panthera.yaml`)
-- dual: **14** motors (`PantheraDual.yaml`)
+| Plugin | 用途 |
+|--------|------|
+| `panthera_ros2_control/PantheraHardwareInterface` | 单臂 / 双臂 |
 
-Joint layout drives arm count (`N*8` joints → `N` arms × 7 motors).
-Talks to hardware through per-motor commands (`pos_vel_MAXtqe` / `pos_vel_tqe_kp_kd`).
+一个 `SystemInterface` + 一个 `hightorque_robot::robot`。电机数量由 YAML 决定：
+- 单臂 / left / right：**7** 电机（`Panthera.yaml`）
+- 双臂：**14** 电机（`PantheraDual.yaml`）
 
-## Build
+关节布局推导臂数（`N×8` 关节 → `N` 臂 × 7 电机）。
+通过 `pos_vel_MAXtqe` / `pos_vel_tqe_kp_kd` 下发电机指令。
+
+## 依赖项
+
+### ROS2 依赖
+- `hardware_interface`
+- `pluginlib`
+- `rclcpp`
+- `rclcpp_lifecycle`
+
+### 系统依赖（vendored `motor_cpp`）
+- `libserialport`
+- `yaml-cpp`
+
+> LCM 为可选调试功能（`lcm_enable()`），本 HI 默认 **不启用**，无需安装系统 `lcm`。
+
+## 编译步骤
+
+`external/motor_cpp` 由 CMake `add_subdirectory` 自动编译，无需像 ARX 那样单独预编译 external SDK。
 
 ```bash
-cd ~/open-deploy-ws-ht
+cd ~/opne-deploy-ws-ht
 colcon build --packages-select panthera_ros2_control --symlink-install
 source install/setup.bash
 ```
 
-SDK is built via `add_subdirectory(external/motor_cpp)`.
-YAML configs live under `external/motor_cpp/robot_param`:
-- single: `Panthera.yaml`
-- dual: `PantheraDual.yaml`
+电机总线 YAML 位于 `external/motor_cpp/robot_param/`：
+- 单臂：`Panthera.yaml`
+- 双臂：`PantheraDual.yaml`
 
-## Dependencies
-
-ROS:
-- `hardware_interface`, `pluginlib`, `rclcpp`, `rclcpp_lifecycle`
-
-System (for vendored `motor_cpp`):
-- `libserialport`, `yaml-cpp`
-
-Optional (not used by this HI): vendor LCM via `HIGHTORQUE_MOTOR_ENABLE_LCM=ON`
-(needs glib; only for `lcm_enable()` / `motor_msg` UDP debug publish).
-
-## OCS2 real robot (single arm)
+## OCS2 真机（单臂）
 
 ```bash
-source ~/open-deploy-ws-ht/install/setup.bash
 ros2 launch ocs2_arm_controller demo.launch.py \
   robot:=panthera_ht hardware:=real
 ```
 
-Optional args (passed through xacro):
+可选 xacro 参数：
+- `control_mode:=full_control`（默认）/ `pd_control` / `position_velocity`
+- `config_file:=...`（默认本包 share 下 `Panthera.yaml`）
+- Ctrl+C 关机：插值回 `shutdown_home` 后 `set_stop`（阻尼）；`shutdown_return_home:=false` 可关闭
 
-- `control_mode:=full_control` (default, OCS2 MIX: pos/vel/effort/kp/kd) / `pd_control` / `position_velocity`
-- `config_file:=...` (default: `Panthera.yaml` under this package share)
-- Ctrl+C shutdown: hardware moves to `shutdown_home` (default all zeros), then `set_stop` (damping). Disable with `shutdown_return_home:=false` in xacro.
-
-## Dual arm real
+## OCS2 真机（双臂）
 
 ```bash
 ros2 launch ocs2_arm_controller demo.launch.py \
   robot:=panthera_ht type:=dual hardware:=real
 ```
 
-Uses `PantheraDual.yaml` by default (`dual_config_file` xacro arg).
+默认使用 `PantheraDual.yaml`（xacro `dual_config_file`）。
 
-## Joint layout
+## 关节布局
 
-Expects arm joints `joint1`…`joint6`, primary gripper `gripper_joint` (or legacy `L_finger_joint`),
-and optional mimic `gripper_joint2` (or legacy `R_finger_joint`, state only).
-Dual stacks left then right (16 joints → 14 motors).
+`joint1`…`joint6`、主夹爪 `gripper_joint`（或旧名 `L_finger_joint`）、
+可选 mimic `gripper_joint2`（或 `R_finger_joint`，仅状态）。
+双臂顺序：左臂 + 右臂（16 关节 → 14 电机）。
