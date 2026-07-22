@@ -23,6 +23,8 @@ namespace panthera_ros2_control
 namespace
 {
 constexpr const char * kLoggerName = "PantheraHardwareInterface";
+constexpr double kInvalidMotorPosition = 999.0;
+constexpr double kMaxReasonableJointPosition = 10.0;
 
 std::string formatVector(const std::vector<double> & values)
 {
@@ -273,6 +275,70 @@ double PantheraHardwareInterface::motorVelocityToJointVelocity(
     return motor_velocity * gripper_rad_to_m_;
   }
   return motor_velocity;
+}
+
+bool PantheraHardwareInterface::isValidJointFeedback(double position) const
+{
+  return std::isfinite(position) &&
+         std::abs(position - kInvalidMotorPosition) > 1.0 &&
+         std::abs(position) < kMaxReasonableJointPosition;
+}
+
+bool PantheraHardwareInterface::allArmMotorsHaveValidFeedback() const
+{
+  if (!robot_ || !validateMotorCount("feedback_check"))
+  {
+    return false;
+  }
+
+  for (size_t arm_index = 0; arm_index < arm_count_; ++arm_index)
+  {
+    const size_t joint_base = full_arm_layout_ ? arm_index * kJointsPerArm : 0;
+
+    for (size_t joint_offset = 0; joint_offset < kArmJointCount; ++joint_offset)
+    {
+      const size_t joint_index = joint_base + joint_offset;
+      if (joint_index >= hw_positions_.size())
+      {
+        return false;
+      }
+      if (!isValidJointFeedback(hw_positions_[joint_index]))
+      {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+bool PantheraHardwareInterface::waitForValidMotorFeedback(
+  const char * context, int timeout_ms)
+{
+  const auto deadline =
+    std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+
+  while (std::chrono::steady_clock::now() < deadline)
+  {
+    if (read(rclcpp::Time(0, 0, RCL_ROS_TIME), rclcpp::Duration::from_seconds(0.01)) !=
+      hardware_interface::return_type::OK)
+    {
+      return false;
+    }
+    if (allArmMotorsHaveValidFeedback())
+    {
+      RCLCPP_INFO(
+        rclcpp::get_logger(kLoggerName),
+        "%s: all arm motors reported valid joint feedback", context);
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+
+  RCLCPP_WARN(
+    rclcpp::get_logger(kLoggerName),
+    "%s: timed out after %d ms waiting for valid joint feedback on all arm motors",
+    context, timeout_ms);
+  return false;
 }
 
 bool PantheraHardwareInterface::validateMotorCount(const char * context) const
@@ -554,7 +620,12 @@ hardware_interface::CallbackReturn PantheraHardwareInterface::on_configure(
 
   robot_->send_get_motor_state_cmd();
   robot_->motor_send_cmd();
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  if (!waitForValidMotorFeedback("on_configure", 3000))
+  {
+    RCLCPP_WARN(
+      rclcpp::get_logger(kLoggerName),
+      "Proceeding with partial motor feedback; startup may be unstable until all motors respond");
+  }
 
   return read(rclcpp::Time(0, 0, RCL_ROS_TIME), rclcpp::Duration::from_seconds(0.01)) ==
            hardware_interface::return_type::OK ?
@@ -619,17 +690,19 @@ hardware_interface::CallbackReturn PantheraHardwareInterface::on_activate(
     return hardware_interface::CallbackReturn::ERROR;
   }
 
-  if (read(rclcpp::Time(0, 0, RCL_ROS_TIME), rclcpp::Duration::from_seconds(0.01)) !=
-    hardware_interface::return_type::OK)
+  if (!waitForValidMotorFeedback("on_activate", 3000))
   {
+    RCLCPP_ERROR(
+      rclcpp::get_logger(kLoggerName),
+      "Refusing to activate: not all arm motors have valid position feedback");
     return hardware_interface::CallbackReturn::ERROR;
   }
 
   for (size_t joint_index = 0; joint_index < info_.joints.size(); ++joint_index)
   {
     // Hold current pose until a controller starts writing valid commands.
-    // Non-finite position targets are a common cause of motor runaway on enable.
-    if (std::isfinite(hw_positions_[joint_index]))
+    // Reject SDK placeholder 999 / NaN — those cause runaway on enable.
+    if (isValidJointFeedback(hw_positions_[joint_index]))
     {
       hw_commands_positions_[joint_index] = hw_positions_[joint_index];
     }
@@ -697,9 +770,16 @@ void PantheraHardwareInterface::sendActivateHoldCommand()
       continue;
     }
 
-    const double hold_pos = std::isfinite(hw_positions_[joint_index]) ?
-      hw_positions_[joint_index] : 0.0;
-    const double motor_pos = jointPositionToMotorPosition(joint_index, hold_pos);
+    if (!isValidJointFeedback(hw_positions_[joint_index]))
+    {
+      RCLCPP_ERROR(
+        rclcpp::get_logger(kLoggerName),
+        "Activate hold skipped motor %zu (joint %zu): invalid feedback %.3f",
+        motor_index, joint_index, hw_positions_[joint_index]);
+      continue;
+    }
+    const double motor_pos =
+      jointPositionToMotorPosition(joint_index, hw_positions_[joint_index]);
     const double kp = joint_index < kp_gains_.size() ? kp_gains_[joint_index] : 4.0;
     const double kd = joint_index < kd_gains_.size() ? kd_gains_[joint_index] : 0.5;
 
@@ -930,9 +1010,28 @@ hardware_interface::return_type PantheraHardwareInterface::read(
       for (size_t joint_offset = 0; joint_offset < kArmJointCount; ++joint_offset)
       {
         auto * state = robot_->Motors[motor_base + joint_offset]->get_current_motor_state();
-        hw_positions_[joint_base + joint_offset] = state->position;
-        hw_velocities_[joint_base + joint_offset] = state->velocity;
-        hw_efforts_[joint_base + joint_offset] = state->torque;
+        const size_t joint_index = joint_base + joint_offset;
+        const double position = state->position;
+        const double velocity = state->velocity;
+        const double torque = state->torque;
+
+        if (isValidJointFeedback(position))
+        {
+          hw_positions_[joint_index] = position;
+          hw_velocities_[joint_index] = velocity;
+          hw_efforts_[joint_index] = torque;
+        }
+        else
+        {
+          RCLCPP_WARN_THROTTLE(
+            rclcpp::get_logger(kLoggerName),
+            *rclcpp::Clock::make_shared(), 1000,
+            "Dropping invalid motor feedback for joint %zu (%s): pos=%.3f "
+            "(SDK placeholder is %.0f); keeping last good state",
+            joint_index,
+            info_.joints[joint_index].name.c_str(),
+            position, kInvalidMotorPosition);
+        }
       }
 
       const size_t gripper_joint = joint_base + 6;
@@ -940,20 +1039,27 @@ hardware_interface::return_type PantheraHardwareInterface::read(
       {
         auto * gripper_state =
           robot_->Motors[motor_base + kArmJointCount]->get_current_motor_state();
-        hw_positions_[gripper_joint] =
+        const double gripper_position =
           motorPositionToJointPosition(gripper_joint, gripper_state->position);
-        hw_velocities_[gripper_joint] =
+        const double gripper_velocity =
           motorVelocityToJointVelocity(gripper_joint, gripper_state->velocity);
-        hw_efforts_[gripper_joint] = gripper_state->torque;
+        const double gripper_torque = gripper_state->torque;
 
-        const size_t mimic_joint = joint_base + 7;
-        if (mimic_joint < info_.joints.size() && isMimicGripperJoint(mimic_joint))
+        if (isValidJointFeedback(gripper_position))
         {
-          const double mimic_sign =
-            mimicUsesNegatedSign(info_.joints[mimic_joint].name) ? -1.0 : 1.0;
-          hw_positions_[mimic_joint] = mimic_sign * hw_positions_[gripper_joint];
-          hw_velocities_[mimic_joint] = mimic_sign * hw_velocities_[gripper_joint];
-          hw_efforts_[mimic_joint] = 0.0;
+          hw_positions_[gripper_joint] = gripper_position;
+          hw_velocities_[gripper_joint] = gripper_velocity;
+          hw_efforts_[gripper_joint] = gripper_torque;
+
+          const size_t mimic_joint = joint_base + 7;
+          if (mimic_joint < info_.joints.size() && isMimicGripperJoint(mimic_joint))
+          {
+            const double mimic_sign =
+              mimicUsesNegatedSign(info_.joints[mimic_joint].name) ? -1.0 : 1.0;
+            hw_positions_[mimic_joint] = mimic_sign * hw_positions_[gripper_joint];
+            hw_velocities_[mimic_joint] = mimic_sign * hw_velocities_[gripper_joint];
+            hw_efforts_[mimic_joint] = 0.0;
+          }
         }
       }
     }
@@ -985,7 +1091,7 @@ hardware_interface::return_type PantheraHardwareInterface::write(
     dt = 0.01;
   }
 
-  // Seed with current state so any skipped/invalid joint never defaults to position 0.
+  // Seed from last good feedback / last command — never treat SDK 999 as a target.
   std::vector<double> motor_positions(expected_motors_, 0.0);
   std::vector<double> motor_velocities(expected_motors_, 0.0);
   std::vector<double> motor_efforts(expected_motors_, 0.0);
@@ -999,9 +1105,16 @@ hardware_interface::return_type PantheraHardwareInterface::write(
     {
       continue;
     }
-    const double hold_pos = std::isfinite(hw_positions_[joint_index]) ?
-      hw_positions_[joint_index] : 0.0;
-    motor_positions[motor_index] = jointPositionToMotorPosition(joint_index, hold_pos);
+    if (isValidJointFeedback(hw_positions_[joint_index]))
+    {
+      motor_positions[motor_index] =
+        jointPositionToMotorPosition(joint_index, hw_positions_[joint_index]);
+    }
+    else if (has_last_motor_command_positions_ &&
+      motor_index < last_motor_command_positions_.size())
+    {
+      motor_positions[motor_index] = last_motor_command_positions_[motor_index];
+    }
     motor_torque_limits[motor_index] =
       joint_index < max_torques_.size() ? max_torques_[joint_index] : 10.0;
     motor_kp[motor_index] = joint_index < kp_gains_.size() ? kp_gains_[joint_index] : 4.0;
@@ -1022,10 +1135,23 @@ hardware_interface::return_type PantheraHardwareInterface::write(
     }
 
     double cmd_pos = hw_commands_positions_[joint_index];
-    if (!std::isfinite(cmd_pos))
+    if (!std::isfinite(cmd_pos) || !isValidJointFeedback(cmd_pos))
     {
-      // Invalid command (common right after claim): hold measured position.
-      cmd_pos = std::isfinite(hw_positions_[joint_index]) ? hw_positions_[joint_index] : 0.0;
+      // Invalid command (common right after claim): hold last good measured pose.
+      if (isValidJointFeedback(hw_positions_[joint_index]))
+      {
+        cmd_pos = hw_positions_[joint_index];
+      }
+      else if (has_last_motor_command_positions_ &&
+        motor_index < last_motor_command_positions_.size())
+      {
+        cmd_pos = motorPositionToJointPosition(
+          joint_index, last_motor_command_positions_[motor_index]);
+      }
+      else
+      {
+        continue;
+      }
       hw_commands_positions_[joint_index] = cmd_pos;
     }
 

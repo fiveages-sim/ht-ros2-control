@@ -68,6 +68,9 @@ private:
   double jointVelocityToMotorVelocity(size_t joint_index, double joint_velocity) const;
   double motorVelocityToJointVelocity(size_t joint_index, double motor_velocity) const;
   bool validateMotorCount(const char * context) const;
+  bool isValidJointFeedback(double position) const;
+  bool allArmMotorsHaveValidFeedback() const;
+  bool waitForValidMotorFeedback(const char * context, int timeout_ms);
   void sendActivateHoldCommand();
   void moveToShutdownHomeThenStop();
 
