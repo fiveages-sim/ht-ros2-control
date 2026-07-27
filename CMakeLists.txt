@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.12)
-project(panthera_ros2_control)
+project(ht_ros2_control)
 
 if(POLICY CMP0079)
   cmake_policy(SET CMP0079 NEW)
@@ -40,7 +40,7 @@ ament_target_dependencies(${PROJECT_NAME}
   rclcpp_lifecycle
 )
 
-pluginlib_export_plugin_description_file(hardware_interface panthera_ros2_control.xml)
+pluginlib_export_plugin_description_file(hardware_interface ht_ros2_control.xml)
 
 install(
   TARGETS ${PROJECT_NAME}
@@ -62,7 +62,7 @@ install(
 )
 
 install(
-  FILES panthera_ros2_control.xml
+  FILES ht_ros2_control.xml
   DESTINATION share/${PROJECT_NAME}
 )
 

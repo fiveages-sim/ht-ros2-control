@@ -17,7 +17,7 @@
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "rclcpp/rclcpp.hpp"
 
-namespace panthera_ros2_control
+namespace ht_ros2_control
 {
 
 namespace
@@ -1358,8 +1358,8 @@ hardware_interface::return_type PantheraHardwareInterface::write(
   return hardware_interface::return_type::OK;
 }
 
-}  // namespace panthera_ros2_control
+}  // namespace ht_ros2_control
 
 #include "pluginlib/class_list_macros.hpp"
 PLUGINLIB_EXPORT_CLASS(
-  panthera_ros2_control::PantheraHardwareInterface, hardware_interface::SystemInterface)
+  ht_ros2_control::PantheraHardwareInterface, hardware_interface::SystemInterface)

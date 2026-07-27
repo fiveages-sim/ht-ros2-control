@@ -1,5 +1,7 @@
-<library path="panthera_ros2_control">
-  <class name="panthera_ros2_control/PantheraHardwareInterface" type="panthera_ros2_control::PantheraHardwareInterface" base_class_type="hardware_interface::SystemInterface">
+<library path="ht_ros2_control">
+  <class name="ht_ros2_control/PantheraHardwareInterface"
+         type="ht_ros2_control::PantheraHardwareInterface"
+         base_class_type="hardware_interface::SystemInterface">
     <description>
       Panthera-HT hardware interface driven by motor_cpp (one hightorque_robot::robot).
       Single arm uses 7 motors; dual arm uses 14. Motor count comes from YAML + joint layout.
