@@ -37,8 +37,6 @@
 - `libserialport`
 - `yaml-cpp`
 
-> LCM 为可选调试功能（`lcm_enable()`），本 HI 默认 **不启用**，无需安装系统 `lcm`。
-
 ## 编译步骤
 
 `external/motor_cpp` 由 CMake `add_subdirectory` 自动编译，无需像 ARX 那样单独预编译 external SDK。
