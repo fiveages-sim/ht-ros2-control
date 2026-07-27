@@ -1023,9 +1023,11 @@ hardware_interface::return_type PantheraHardwareInterface::read(
         }
         else
         {
+          // Must use a stable Clock& (e.g. get_clock()). *Clock::make_shared() is a
+          // temporary — RCLCPP_*_THROTTLE init-captures it by reference and segfaults.
           RCLCPP_WARN_THROTTLE(
             rclcpp::get_logger(kLoggerName),
-            *rclcpp::Clock::make_shared(), 1000,
+            *get_clock(), 1000,
             "Dropping invalid motor feedback for joint %zu (%s): pos=%.3f "
             "(SDK placeholder is %.0f); keeping last good state",
             joint_index,
@@ -1068,7 +1070,7 @@ hardware_interface::return_type PantheraHardwareInterface::read(
   {
     RCLCPP_ERROR_THROTTLE(
       rclcpp::get_logger(kLoggerName),
-      *rclcpp::Clock::make_shared(), 1000,
+      *get_clock(), 1000,
       "Failed to read hardware state: %s",
       e.what());
     return hardware_interface::return_type::ERROR;
@@ -1332,7 +1334,7 @@ hardware_interface::return_type PantheraHardwareInterface::write(
   {
     RCLCPP_ERROR_THROTTLE(
       rclcpp::get_logger(kLoggerName),
-      *rclcpp::Clock::make_shared(), 1000,
+      *get_clock(), 1000,
       "Failed to write hardware command: %s",
       e.what());
     return hardware_interface::return_type::ERROR;
