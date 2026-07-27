@@ -13,8 +13,8 @@
   <depend>hardware_interface</depend>
   <depend>pluginlib</depend>
   <depend>rclcpp_lifecycle</depend>
-  <!-- Used by vendored motor_cpp (serial + YAML motor bus config). LCM is optional and OFF for this HI. -->
-  <depend>libserialport</depend>
+  <!-- Used by vendored motor_cpp (serial + YAML motor bus config). -->
+  <depend>libserialport-dev</depend>
   <depend>yaml-cpp</depend>
 
   <test_depend>ament_lint_auto</test_depend>

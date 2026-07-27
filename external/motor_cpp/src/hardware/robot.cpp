@@ -1,9 +1,6 @@
 #include "robot.hpp"
 #include "parse_robot_params.hpp"
 #include <unistd.h>
-#if defined(HIGHTORQUE_MOTOR_HAS_LCM)
-#include "motor_msg/motor_msg.hpp"
-#endif
 #include <yaml-cpp/yaml.h>
 #include <iostream>
 #include <iomanip>
@@ -109,10 +106,6 @@ namespace hightorque_robot
         send_get_motor_state_cmd();
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
-#if defined(HIGHTORQUE_MOTOR_HAS_LCM)
-        this->lcm_en = false;
-#endif
-
         std::cout << "\033[1;32mThe robot has " << Motors.size() << " motors\033[0m" << std::endl;
         std::cout << "robot init" << std::endl;
     }
@@ -151,100 +144,12 @@ namespace hightorque_robot
                 thread.join();
         }
 
-#if defined(HIGHTORQUE_MOTOR_HAS_LCM)
-        this->lcm_en = false;
-        if(pub_thread_.joinable())
-        {
-            pub_thread_.join(); 
-        }
-#endif
-
         error_check_flag = false;
         if(error_check_thread_.joinable())
         {
             error_check_thread_.join(); 
         }
     }
-
-    void robot::lcm_enable()
-    {
-#if defined(HIGHTORQUE_MOTOR_HAS_LCM)
-        if(this->lcm_en == false)
-        {
-            this->lcm_en = true;
-            lcm_ptr = std::make_shared<lcm::LCM>("udpm://239.255.76.67:7667?ttl=0");
-            if (!lcm_ptr->good())
-            {
-                std::cerr << "\033[1;31m" << "LCM init error" << "\033[0m" << std::endl;
-            }
-            else
-            {
-                std::cout << std::endl <<  "LCM init success" << std::endl;
-                pub_thread_ = std::thread(&robot::publishJointStates, this);
-            }
-        }
-#else
-        std::cerr << "\033[1;33m"
-                  << "lcm_enable() ignored: hightorque_motor built without LCM "
-                     "(HIGHTORQUE_MOTOR_ENABLE_LCM=OFF)"
-                  << "\033[0m" << std::endl;
-#endif
-    }
-
-#if defined(HIGHTORQUE_MOTOR_HAS_LCM)
-    void robot::publishJointStates()
-    {
-        while(this->lcm_en)
-        {
-            motor_msg::motor_msg msg;
-            for(int i = 0; i < 40; i++)
-            {
-                msg.motor_status[i] = 0;
-            }
-            msg.can1_num = 0;
-            msg.can2_num = 0;
-            msg.can3_num = 0;
-            msg.can4_num = 0;
-            if(CANPorts.size() > 0)
-            {
-                msg.can1_num = CANPorts[0]->get_motor_num();
-            }
-            if(CANPorts.size() > 1)
-            {
-                msg.can2_num = CANPorts[1]->get_motor_num();
-            }
-            if(CANPorts.size() > 2)
-            {
-                msg.can3_num = CANPorts[2]->get_motor_num();
-            }
-            if(CANPorts.size() > 3)
-            {
-                msg.can4_num = CANPorts[3]->get_motor_num();
-            }
-            int cnt = 0;
-            for (motor *m : Motors)
-            {    
-                motor_back_t* data_ptr=m->get_current_motor_state();
-                auto now = std::chrono::system_clock::now();
-                auto now_time = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() / 1000.0;
-                if(now_time - data_ptr->time < 0.1)
-                {   
-                    msg.motor_status[cnt] = data_ptr->position;
-                }
-                else
-                {
-                    msg.motor_status[cnt] = -999.0f;
-                }
-                cnt ++;
-            }
-            // Publish the joint state message
-            lcm_ptr->publish("motor_msg", &msg);
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-    }
-#else
-    void robot::publishJointStates() {}
-#endif
 
     void robot::detect_motor_limit()
     {

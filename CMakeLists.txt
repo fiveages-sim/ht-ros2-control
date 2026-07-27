@@ -17,8 +17,6 @@ find_package(rclcpp_lifecycle REQUIRED)
 
 set(MOTOR_CPP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/motor_cpp)
 set(PANTHERA_SDK_BUILD_EXAMPLES OFF CACHE BOOL "Build vendored Panthera SDK examples" FORCE)
-# HI never uses LCM motor_msg publish; skip vendored LCM (+ glib) entirely.
-set(HIGHTORQUE_MOTOR_ENABLE_LCM OFF CACHE BOOL "Build/link vendored LCM for motor_msg publish" FORCE)
 
 add_subdirectory(
   ${MOTOR_CPP_DIR}

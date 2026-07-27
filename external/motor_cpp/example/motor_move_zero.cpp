@@ -19,7 +19,6 @@ int main(int argc, char **argv)
 {
     std::signal(SIGINT, signalHandler);
     hightorque_robot::robot rb;
-    rb.lcm_enable();
     int cont = 0;
 
     while(!exitFlag.load())

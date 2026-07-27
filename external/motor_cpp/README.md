@@ -10,7 +10,6 @@
 * 支持多种电机型号（4438、5046、5047、6056等系列）；
 * 多种控制模式：位置控制、速度控制、力矩控制、混合控制等；
 * 支持多个CAN总线板卡和多个电机，目前硬件支持7路CAN总线，每条总线可以挂30个电机；
-* 提供LCM（Lightweight Communications and Marshalling）消息发布；
 * 实时电机状态反馈；
 
 ### 项目结构
@@ -47,13 +46,7 @@ motor_cpp/
 │   ├── motor_move_zero.cpp   # 电机回零示例
 │   ├── motor_set_zero.cpp    # 设置电机零位示例
 │   ├── canboard_update.cpp   # CAN 板固件更新示例
-│   ├── motor_msg_subscriber.cpp  # LCM 消息订阅示例
 │   └── parse_demo.cpp        # 参数解析示例
-│
-├── msg/                       # LCM 消息定义
-│   ├── motor_msg.lcm         # 电机消息定义文件
-│   └── motor_msg/            # 生成的消息头文件
-│       └── motor_msg.hpp
 │
 ├── robot_param/               # 机器人参数配置
 │   ├── robot_config.yaml     # 机器人配置文件
@@ -66,13 +59,10 @@ motor_cpp/
 │   └── 80dof_STM32H730_model_test_Orin_params.yaml
 │
 ├── third_part/                # 第三方库
-│   ├── lcm/                   # LCM 通信库
 │   └── serial_cmake/          # 串口通信库
 │
 ├── cmake/                     # CMake 配置文件
 │   └── hightorque_robotConfig.cmake.in
-│
-├── doc/                       # 文档
 │
 ├── CMakeLists.txt             # CMake 构建配置
 └── README.md                  # 本文档
@@ -104,7 +94,6 @@ chmod 777 Interface_cpp_setup.sh
 * C++11 编译器
 * libserialport（串口通信）
 * yaml-cpp（YAML配置文件解析）
-* lcm
 * serial_cmake
 
 

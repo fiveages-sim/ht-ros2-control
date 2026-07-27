@@ -34,8 +34,8 @@
 - `rclcpp_lifecycle`
 
 ### 系统依赖（vendored `motor_cpp`）
-- `libserialport`
-- `yaml-cpp`
+- `libserialport-dev`
+- `libyaml-cpp-dev`
 
 ## 编译步骤
 

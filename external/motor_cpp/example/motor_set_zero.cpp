@@ -18,7 +18,6 @@ int main(int argc, char **argv)
 {
     std::signal(SIGINT, signalHandler);
     hightorque_robot::robot rb;
-    rb.lcm_enable();
 
     rb.set_reset_zero();  // 全部电机重置零位
 

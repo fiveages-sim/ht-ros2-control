@@ -18,7 +18,6 @@ int main(int argc, char **argv)
 {
     std::signal(SIGINT, signalHandler);
     hightorque_robot::robot rb;
-    rb.lcm_enable();
     const int motor_num = rb.Motors.size();
     int cont = 0;
     float angle = 0.2;
