@@ -1,5 +1,5 @@
-#ifndef PANTHERA_ROS2_CONTROL__PANTHERA_HARDWARE_INTERFACE_HPP_
-#define PANTHERA_ROS2_CONTROL__PANTHERA_HARDWARE_INTERFACE_HPP_
+#ifndef HT_ROS2_CONTROL__PANTHERA_HARDWARE_INTERFACE_HPP_
+#define HT_ROS2_CONTROL__PANTHERA_HARDWARE_INTERFACE_HPP_
 
 #include <chrono>
 #include <memory>
@@ -19,7 +19,7 @@ namespace hightorque_robot
 class robot;
 }
 
-namespace panthera_ros2_control
+namespace ht_ros2_control
 {
 
 /// Single SystemInterface for one or two Panthera HT arms.
@@ -125,6 +125,6 @@ private:
   double shutdown_home_velocity_{0.3};
 };
 
-}  // namespace panthera_ros2_control
+}  // namespace ht_ros2_control
 
-#endif  // PANTHERA_ROS2_CONTROL__PANTHERA_HARDWARE_INTERFACE_HPP_
+#endif  // HT_ROS2_CONTROL__PANTHERA_HARDWARE_INTERFACE_HPP_

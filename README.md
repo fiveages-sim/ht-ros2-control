@@ -13,7 +13,7 @@
 
 | Plugin | 用途 |
 |--------|------|
-| `panthera_ros2_control/PantheraHardwareInterface` | 单臂 / 双臂 |
+| `ht_ros2_control/PantheraHardwareInterface` | 单臂 / 双臂 |
 
 一个 `SystemInterface` + 一个 `hightorque_robot::robot`。电机数量由 YAML 决定：
 
@@ -37,8 +37,6 @@
 - `libserialport`
 - `yaml-cpp`
 
-> LCM 为可选调试功能（`lcm_enable()`），本 HI 默认 **不启用**，无需安装系统 `lcm`。
-
 ## 编译步骤
 
 `external/motor_cpp` 由 CMake `add_subdirectory` 自动编译，无需像 ARX 那样单独预编译 external SDK。
@@ -48,7 +46,7 @@
 ```bash
 cd ~/ht-deploy-ws
 # 推荐：./quick_start.sh → 1) 编译 → 2) 编译真机所需包
-colcon build --packages-select panthera_ros2_control panthera_ht_description --symlink-install
+colcon build --packages-select ht_ros2_control panthera_ht_description --symlink-install
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 ```
