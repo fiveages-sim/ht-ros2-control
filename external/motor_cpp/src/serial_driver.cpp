@@ -1,68 +1,73 @@
 #include "serial_driver.hpp"
+#include <cstring>
 #include <iostream>
+
+namespace
+{
+// 与原 serial::Timeout::simpleTimeout(1000) 语义一致：读/写超时 1000 ms
+constexpr int kSerialTimeoutMs = 1000;
+
+// libserialport 返回负值表示错误；错误时抛出异常以保持原有 try/catch 语义
+void check_sp(sp_return r, const char *what)
+{
+    if (r < SP_OK)
+    {
+        throw std::runtime_error(std::string(what) + ": " + sp_last_error_message());
+    }
+}
+}  // namespace
 
 serial_driver::serial_driver(std::string *port, uint32_t baudrate, bool _canport_error_output_flag): canport_error_output_flag(_canport_error_output_flag)
 {
     init_flag = false;
     error_flag = false;
-    _ser.setPort(*port); // 设置打开的串口名称
-    _ser.setBaudrate(baudrate);
-    serial::Timeout to = serial::Timeout::simpleTimeout(1000); // 创建timeout
-    _ser.setTimeout(to);                                       // 设置串口的timeout
 
-    // 打开串口
     try
     {
-        _ser.open(); // 打开串口
+        // 按端口名创建并打开串口（读写模式）
+        if (sp_get_port_by_name(port->c_str(), &_ser) != SP_OK || _ser == nullptr)
+        {
+            throw std::runtime_error("sp_get_port_by_name failed");
+        }
+        check_sp(sp_open(_ser, SP_MODE_READ_WRITE), "sp_open");
+        check_sp(sp_set_baudrate(_ser, static_cast<int>(baudrate)), "sp_set_baudrate");
+        init_flag = true;
     }
     catch (const std::exception &e)
     {
         std::cerr << "\033[1;31m" << "Motor Unable to open port" << "\033[0m" << std::endl;
         this->error_flag = true;
+        close();
     }
-    if (_ser.isOpen())
-    {
-        // std::cout << "\033[1;32mMotor Serial Port initialized.\033[0m" << std::endl; // 成功打开串口，打印信息
-        init_flag = true;
-    }
-    else
-    {
-    }
-    init_flag = true;
 }
 
 
 serial_driver::~serial_driver()
 {
-    if(_ser.isOpen())
-    {
-        _ser.close();
-        init_flag = false;
-    }
+    close();
 }
 
 
 void serial_driver::recv_1for6_42()
 {
-    uint8_t CRC8 = 0;
     uint16_t CRC16 = 0;
-    cdc_tr_message_data_s cdc_rx_message_data = {0};
+    cdc_tr_message_data_s cdc_rx_message_data{};
     while (init_flag)
     {
-        cdc_tr_message_head_data_s SOF = {0};
+        cdc_tr_message_head_data_s SOF{};
         try
         {
-            _ser.read(&(SOF.head), 1); 
+            read_bytes(&(SOF.head), 1);
             if (SOF.head == 0xF7)      //  head
             {
-                _ser.read(&(SOF.cmd), 4);
+                read_bytes(&(SOF.cmd), 4);
                 if (SOF.crc8 == Get_CRC8_Check_Sum((uint8_t *)&(SOF.cmd), 3, 0xFF)) // cmd_id
                 {
-                    _ser.read((uint8_t *)&CRC16, 2);
-                    _ser.read((uint8_t *)&cdc_rx_message_data, SOF.len);
+                    read_bytes((uint8_t *)&CRC16, 2);
+                    read_bytes((uint8_t *)&cdc_rx_message_data, SOF.len);
                     if (CRC16 != crc_ccitt(0xFFFF, (const uint8_t *)&cdc_rx_message_data, SOF.len))
                     {
-                        memset(&cdc_rx_message_data, 0, sizeof(cdc_rx_message_data) / sizeof(int));
+                        memset(&cdc_rx_message_data, 0, sizeof(cdc_rx_message_data));
                     }
                     else
                     {
@@ -228,7 +233,7 @@ void serial_driver::recv_1for6_42()
         catch(const std::exception& e)
         {
             std::cerr << "\033[1;31m" << e.what() << "\033[0m" << '\n';
-            _ser.close();
+            close();
             error_flag = true;
             break;
         }
@@ -252,20 +257,14 @@ bool serial_driver::get_run_flag(void)
 
 void serial_driver::close(void)
 {
-    try
+    if (_ser != nullptr)
     {
-        /* code */
-        if(_ser.isOpen())
-        {
-            _ser.flush();
-        }
-        _ser.close();
+        sp_flush(_ser, SP_BUF_BOTH);
+        sp_close(_ser);
+        sp_free_port(_ser);
+        _ser = nullptr;
     }
-    catch(const std::exception& e)
-    {
-        std::cerr << e.what() << '\n';
-    }
-    
+    init_flag = false;
 }
 
 void serial_driver::send_2(cdc_tr_message_s *cdc_tr_message)
@@ -273,25 +272,21 @@ void serial_driver::send_2(cdc_tr_message_s *cdc_tr_message)
     cdc_tr_message->head.s.crc8 = Get_CRC8_Check_Sum(&(cdc_tr_message->head.data[1]), 3, 0xFF);
     cdc_tr_message->head.s.crc16 = crc_ccitt(0xFFFF, &(cdc_tr_message->data.data[0]), cdc_tr_message->head.s.len);
 
-    // uint8_t *byte_ptr = (uint8_t *)&cdc_tr_message->head.s.head;
-    // printf("send:\n");
-    // for (size_t i = 0; i < cdc_tr_message->head.s.len + 7; i++)
-    // {
-    //     printf("0x%.2X ", byte_ptr[i]);
-    // }
-    // printf("\n\n");
-
     try
     {
-        if(_ser.isOpen())
+        if (_ser != nullptr)
         {
-            _ser.write((const uint8_t *)&cdc_tr_message->head.s.head, cdc_tr_message->head.s.len + sizeof(cdc_tr_message_head_s));
+            check_sp(sp_blocking_write(_ser,
+                        reinterpret_cast<const uint8_t *>(&cdc_tr_message->head.s.head),
+                        cdc_tr_message->head.s.len + sizeof(cdc_tr_message_head_s),
+                        kSerialTimeoutMs),
+                    "sp_blocking_write");
         }
     }
     catch(const std::exception& e)
     {
         std::cerr << e.what() << '\n';
-        _ser.close();
+        close();
         error_flag = true;
     }
 }
@@ -328,4 +323,22 @@ void serial_driver::port_fdcan_state_init(cdc_rx_fdcan_state_s *_p_fdcan_state)
     p_fdcan_state->fault = FDCAN_STATUS_OK;
     p_fdcan_state->rx_err_num = 0;
     p_fdcan_state->tx_err_num = 0;
+}
+
+void serial_driver::read_bytes(uint8_t *buffer, size_t size)
+{
+    if (_ser == nullptr || size == 0)
+    {
+        return;
+    }
+    size_t bytes_read = 0;
+    while (bytes_read < size)
+    {
+        const sp_return r = sp_blocking_read(_ser, buffer + bytes_read, size - bytes_read, kSerialTimeoutMs);
+        if (r <= 0)
+        {
+            throw std::runtime_error(std::string("sp_blocking_read: ") + sp_last_error_message());
+        }
+        bytes_read += static_cast<size_t>(r);
+    }
 }

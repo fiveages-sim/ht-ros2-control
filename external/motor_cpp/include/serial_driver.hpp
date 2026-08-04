@@ -2,7 +2,7 @@
 #define _serial_driver_H_
 
 
-#include <serial/serial.h>
+#include <libserialport.h>
 #include "serial_struct.hpp"
 #include "motor.hpp"
 #include <unordered_set>
@@ -11,7 +11,7 @@
 class serial_driver
 {
 private:
-    serial::Serial _ser;
+    struct sp_port *_ser = nullptr;
     bool init_flag;
     std::map<int, motor *> Map_Motors_p;
     uint16_t *p_port_version = NULL;
@@ -20,6 +20,9 @@ private:
     fun_version *p_fun_v = NULL;
     cdc_rx_fdcan_state_s *p_fdcan_state = NULL;
     bool canport_error_output_flag = false;
+
+    // 阻塞读取 size 字节，超时/出错时抛出 std::runtime_error
+    void read_bytes(uint8_t *buffer, size_t size);
 
 public:
     serial_driver(std::string *port, uint32_t baudrate, bool _canport_error_output_flag);

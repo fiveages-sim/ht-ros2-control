@@ -4,7 +4,6 @@
 include(CMakeFindDependencyMacro)
 
 # 查找必需的依赖项
-find_dependency(serial_cmake REQUIRED)  
 find_dependency(yaml-cpp REQUIRED)
 
 # 查找libserialport库

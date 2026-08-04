@@ -10,8 +10,6 @@ set(VERSION_MINOR 4)
 set(VERSION_PATCH 7)
 set(PROJECT_VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
 
-add_subdirectory(third_part/serial_cmake)
-
 option(PANTHERA_SDK_BUILD_EXAMPLES "Build vendored Panthera SDK examples" OFF)
 
 # 查找依赖库
@@ -64,7 +62,6 @@ target_include_directories(hightorque_motor PUBLIC
 target_link_libraries(hightorque_motor
     PUBLIC
         yaml-cpp
-        serial_cmake
         ${SERIALPORT_LIBRARY}
     PRIVATE
         rt

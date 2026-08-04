@@ -122,7 +122,7 @@ private:
     bool tor_limit_enable = false;
     float tor_upper = 0.0f;
     float tor_lower = 0.0f;
-    cdc_rx_motor_version_s version = {0};
+    cdc_rx_motor_version_s version{};  // 值初始化，避免 -Wmissing-field-initializers
     uint8_t tqe_adjust_flag = 0xff;
 
 public:

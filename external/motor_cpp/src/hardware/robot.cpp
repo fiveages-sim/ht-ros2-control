@@ -68,7 +68,7 @@ namespace hightorque_robot
         error_check_flag = true;
         error_check_thread_ = std::thread(&robot::check_error, this);
         auto it = robot_params.CANboards.begin();
-        for (size_t i = 1; i <= CANboard_num; i++, it++)
+        for (int i = 1; i <= CANboard_num; i++, it++)
         {
             CANboards.push_back(canboard(i, &ser, it->second, canport_error_output_flag));
         }
@@ -321,7 +321,6 @@ namespace hightorque_robot
         str.clear();   
         std::vector<std::string> ports = list_serial_ports(Serial_Type);
         std::cout << "Serial Port List: " << std::endl;
-        int8_t board_port_num = 99;
         for (const std::string& port : ports) 
         {   
             const int8_t r = serial_pid_vid(port.c_str());
@@ -334,7 +333,6 @@ namespace hightorque_robot
 
         for(auto board_params: robot_params.CANboards)
         {
-            auto cp_num = board_params.second.CANport_num;
             std::vector<int> serial_id_old;
             for(auto port_params: board_params.second.CANports)
             {
@@ -435,7 +433,7 @@ namespace hightorque_robot
                     std::cerr << "\033[1;31mreconnect start \033[0m" << std::endl;
                     this->init_ser();
                     auto it = robot_params.CANboards.begin();
-                    for (size_t i = 1; i <= CANboard_num; i++, it++)
+                    for (int i = 1; i <= CANboard_num; i++, it++)
                     {
                         CANboards.push_back(canboard(i, &ser, it->second, canport_error_output_flag));
                     }
@@ -479,7 +477,7 @@ namespace hightorque_robot
         int exist_num = 0;
         std::cout << "check serial dev exist" << std::endl;
         std::vector<std::string> dev_vec;
-        for (size_t i = 0; i < file_num; i++)
+        for (int i = 0; i < file_num; i++)
         {
             std::string _dev = std::string("/dev/ttyACM") + std::to_string(i);
             std::cout << "check: " << _dev << std::endl;
@@ -669,7 +667,7 @@ namespace hightorque_robot
 
         if (id.size() != 0)
         {
-            for (int i = 0; i < id.size(); i++)
+            for (size_t i = 0; i < id.size(); i++)
             {
                 ROS_ERROR("CANboard(%d) CANport(%d) id(%d) Motor Failed to read torque adjust flag!!!", board[i], port[i], id[i]);
             }
@@ -681,7 +679,7 @@ namespace hightorque_robot
     void robot::check_motor_connection_version()
     {
         int t = 0;
-        int num = 0;
+        size_t num = 0;
         std::vector<int> board;
         std::vector<int> port;
         std::vector<int> id;
@@ -728,7 +726,7 @@ namespace hightorque_robot
         }
         else
         {
-            for (int i = 0; i < Motors.size() - num; i++)
+            for (size_t i = 0; i < Motors.size() - num; i++)
             {
                 std::cerr << "\033[1;31m" << "CANboard(" << board[i] << ") CANport(" << port[i] << ") id(" << id[i] << ") Motor connection disconnected!!!" << "\033[0m" << std::endl;
             }
@@ -741,7 +739,7 @@ namespace hightorque_robot
     void robot::check_motor_connection_position()
     {
         int t = 0;
-        int num = 0;
+        size_t num = 0;
         std::vector<int> board;
         std::vector<int> port;
         std::vector<int> id;
@@ -786,7 +784,7 @@ namespace hightorque_robot
         }
         else
         {
-            for (int i = 0; i < Motors.size() - num; i++)
+            for (size_t i = 0; i < Motors.size() - num; i++)
             {
                 std::cerr << "\033[1;31m" << "CANboard(" << board[i] << ") CANport(" << port[i] << ") id(" << id[i] << ") Motor connection disconnected!!!" << "\033[0m" << std::endl;
             }

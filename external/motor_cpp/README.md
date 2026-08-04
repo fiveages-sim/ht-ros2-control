@@ -58,8 +58,7 @@ motor_cpp/
 │   ├── 23dof_STM32H730_model_test_Orin_params.yaml
 │   └── 80dof_STM32H730_model_test_Orin_params.yaml
 │
-├── third_part/                # 第三方库
-│   └── serial_cmake/          # 串口通信库
+├── third_part/                # 第三方库（当前为空，串口库已改为系统 libserialport）
 │
 ├── cmake/                     # CMake 配置文件
 │   └── hightorque_robotConfig.cmake.in
@@ -92,9 +91,8 @@ chmod 777 Interface_cpp_setup.sh
 
 * CMake >= 3.0.2
 * C++11 编译器
-* libserialport（串口通信）
+* libserialport（串口通信，替代原 vendored serial_cmake）
 * yaml-cpp（YAML配置文件解析）
-* serial_cmake
 
 
 1. 安装串口依赖

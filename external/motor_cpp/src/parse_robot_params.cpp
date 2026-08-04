@@ -35,6 +35,8 @@ int MotorNameComparator::extractNumber(const std::string& str) const
 
 
 
+// 调试用：打印解析后的参数（当前未启用，避免 -Wunused-function）
+#if 0
 static void printParams(const RobotParams &params)
 {
     for (const auto &boardEntry : params.CANboards)
@@ -65,6 +67,7 @@ static void printParams(const RobotParams &params)
         }
     }
 }
+#endif
 
 template <typename T>
 void readConfigParam(const YAML::Node &node, const std::string &key, T &value)

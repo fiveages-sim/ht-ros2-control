@@ -13,7 +13,7 @@
   <depend>hardware_interface</depend>
   <depend>pluginlib</depend>
   <depend>rclcpp_lifecycle</depend>
-  <!-- Used by vendored motor_cpp (serial + YAML motor bus config). -->
+  <!-- Used by vendored motor_cpp (libserialport + YAML motor bus config). -->
   <depend>libserialport-dev</depend>
   <depend>yaml-cpp</depend>
 

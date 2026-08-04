@@ -1,5 +1,6 @@
 #include "canport.hpp"
 #include <chrono>
+#include <cstring>
 #include <thread>
 
 
@@ -25,7 +26,7 @@ canport::canport(int _CANport_num, int _CANboard_num, serial_driver *_ser, CANPo
         }
     }
     auto it = canport_params.motors.begin();
-    for (size_t i = 1; i <= motor_num; i++, it++)
+    for (int i = 1; i <= motor_num; i++, it++)
     {
         Motors.push_back(new motor(i, _CANport_num, _CANboard_num, &cdc_tr_message, id_max, it->second));
     }

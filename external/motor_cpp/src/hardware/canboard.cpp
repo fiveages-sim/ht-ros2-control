@@ -3,8 +3,9 @@
 
 canboard::canboard(int _CANboard_ID, std::vector<serial_driver *> *ser, CANBoardParams &canboard_params, bool _canport_error_output_flag)
 {   
+    CANport_num = canboard_params.CANport_num;
     auto it = canboard_params.CANports.begin();
-    for (size_t j = 1; j <= canboard_params.CANport_num; j++, it++) // 一个串口对应一个CANport
+    for (int j = 1; j <= CANport_num; j++, it++) // 一个串口对应一个CANport
     {
         CANport.push_back(new canport(j, _CANboard_ID, (*ser)[(_CANboard_ID - 1) * CANport_num + j - 1], it->second, _canport_error_output_flag));
     }
