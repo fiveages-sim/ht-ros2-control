@@ -64,6 +64,18 @@ void serial_driver::recv_1for6_42()
                 if (SOF.crc8 == Get_CRC8_Check_Sum((uint8_t *)&(SOF.cmd), 3, 0xFF)) // cmd_id
                 {
                     read_bytes((uint8_t *)&CRC16, 2);
+                    // 防栈溢出：帧头声明的载荷长度不能超过接收缓冲区上限。
+                    // 非法/错帧（如失步、噪声把 0xF7 误判为帧头）可能带来超大 len，
+                    // 无校验直接 read_bytes() 会把栈写穿导致 SIGSEGV。
+                    // 这里不读取载荷、丢弃本帧，等下一个 0xF7 重新同步；
+                    // 残留字节会在后续循环里逐个被消费，不会造成阻塞。
+                    if (SOF.len > sizeof(cdc_rx_message_data))
+                    {
+                        std::cerr << "\033[1;31m" << "motor_cpp/src/serial_driver.cpp:recv_1for6_42: invalid frame len="
+                                  << SOF.len << " (max " << sizeof(cdc_rx_message_data)
+                                  << "), discarding & resyncing" << "\033[0m" << std::endl;
+                        continue;
+                    }
                     read_bytes((uint8_t *)&cdc_rx_message_data, SOF.len);
                     if (CRC16 != crc_ccitt(0xFFFF, (const uint8_t *)&cdc_rx_message_data, SOF.len))
                     {
