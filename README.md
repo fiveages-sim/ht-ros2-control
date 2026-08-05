@@ -88,7 +88,9 @@ Ctrl+C 关机：默认插值回 `shutdown_home` 后 `set_stop`（阻尼）。
 
 ## 关节布局
 
-单臂：`joint1`…`joint6`、主夹爪 `gripper_joint`（或旧名 `L_finger_joint`）、
-可选 mimic `gripper_joint2`（或 `R_finger_joint`，仅状态）。
+单臂：`joint1`…`joint6` + 夹爪 `gripper_joint`（7 关节 ↔ 7 电机，一一对应）。
 
-双臂顺序：左臂 + 右臂（16 关节 → 14 电机），关节带 `left_` / `right_` 前缀。
+双臂顺序：左臂 + 右臂（14 关节 → 14 电机），关节带 `left_` / `right_` 前缀。
+
+> URDF 中仍有 `<mimic>` 的 `gripper_joint2`（纯运动学，用于 TF），
+> 但它不在 ros2_control 硬件接口里（不再导出状态/指令）。

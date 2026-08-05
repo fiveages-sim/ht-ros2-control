@@ -4,12 +4,13 @@
 #include <chrono>
 #include <cmath>
 #include <cctype>
+#include <condition_variable>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -67,22 +68,6 @@ std::vector<double> parseCsvDoubles(const std::string & text, size_t expected_co
   }
   return values;
 }
-
-bool endsWith(const std::string & joint_name, std::string_view suffix)
-{
-  return joint_name.size() >= suffix.size() &&
-         joint_name.compare(joint_name.size() - suffix.size(), suffix.size(), suffix) == 0;
-}
-
-bool isMimicGripperJointName(const std::string & joint_name)
-{
-  return endsWith(joint_name, "R_finger_joint") || endsWith(joint_name, "gripper_joint2");
-}
-
-bool mimicUsesNegatedSign(const std::string & joint_name)
-{
-  return endsWith(joint_name, "R_finger_joint");
-}
 }  // namespace
 
 bool PantheraHardwareInterface::resolveArmLayout()
@@ -90,70 +75,17 @@ bool PantheraHardwareInterface::resolveArmLayout()
   const size_t joint_count = info_.joints.size();
   auto logger = rclcpp::get_logger(kLoggerName);
 
-  if (joint_count >= kJointsPerArm && joint_count % kJointsPerArm == 0)
-  {
-    arm_count_ = joint_count / kJointsPerArm;
-    full_arm_layout_ = true;
-    expected_motors_ = arm_count_ * kMotorsPerArm;
-    return true;
-  }
-
-  // Legacy single-arm layouts: 6 arm joints, optional primary gripper, optional mimic.
-  if (joint_count >= kArmJointCount && joint_count <= kJointsPerArm)
-  {
-    arm_count_ = 1;
-    full_arm_layout_ = (joint_count == kJointsPerArm);
-    expected_motors_ = kMotorsPerArm;
-    return true;
-  }
-
-  RCLCPP_ERROR(
-    logger,
-    "Unsupported joint layout: expected 6-8 joints (single) or N*8 joints (N arms), got %zu",
-    joint_count);
-  return false;
-}
-
-bool PantheraHardwareInterface::validateJointLayout() const
-{
-  auto logger = rclcpp::get_logger(kLoggerName);
-
-  if (arm_count_ == 0 || expected_motors_ == 0)
-  {
-    RCLCPP_ERROR(logger, "Arm layout was not resolved");
-    return false;
-  }
-
-  if (full_arm_layout_)
-  {
-    if (info_.joints.size() != arm_count_ * kJointsPerArm)
-    {
-      RCLCPP_ERROR(
-        logger,
-        "Unsupported joint layout: expected %zu joints for %zu arm(s), got %zu",
-        arm_count_ * kJointsPerArm, arm_count_, info_.joints.size());
-      return false;
-    }
-    return true;
-  }
-
-  // Legacy single: optional gripper / mimic by name.
-  if (info_.joints.size() > 6 && isMimicGripperJointName(info_.joints[6].name))
+  // 每臂 7 关节（6 臂关节 + 夹爪），关节与电机一一对应
+  if (joint_count == 0 || joint_count % kMotorsPerArm != 0)
   {
     RCLCPP_ERROR(
       logger,
-      "Invalid joint layout: joint index 6 (%s) cannot be a mimic gripper joint",
-      info_.joints[6].name.c_str());
+      "Unsupported joint layout: expected N*%zu joints (N arms), got %zu",
+      kMotorsPerArm, joint_count);
     return false;
   }
-  if (info_.joints.size() > 7 && !isMimicGripperJointName(info_.joints[7].name))
-  {
-    RCLCPP_ERROR(
-      logger,
-      "Invalid joint layout: joint index 7 (%s) must be a mimic gripper joint",
-      info_.joints[7].name.c_str());
-    return false;
-  }
+  arm_count_ = joint_count / kMotorsPerArm;
+  expected_motors_ = joint_count;
   return true;
 }
 
@@ -188,53 +120,10 @@ bool PantheraHardwareInterface::validateStorageLayout(const char * context) cons
          validate_size(kd_gains_, "kd_gains");
 }
 
-bool PantheraHardwareInterface::isMimicGripperJoint(size_t joint_index) const
-{
-  if (full_arm_layout_)
-  {
-    return (joint_index % kJointsPerArm) == 7;
-  }
-  return joint_index == 7 && info_.joints.size() > 7;
-}
-
 bool PantheraHardwareInterface::isPrimaryGripperJoint(size_t joint_index) const
 {
-  if (full_arm_layout_)
-  {
-    return (joint_index % kJointsPerArm) == 6;
-  }
-  return joint_index == 6 && info_.joints.size() > 6;
-}
-
-size_t PantheraHardwareInterface::motorIndexFromJointIndex(size_t joint_index) const
-{
-  if (full_arm_layout_)
-  {
-    const size_t arm_index = joint_index / kJointsPerArm;
-    const size_t offset = joint_index % kJointsPerArm;
-    if (offset >= 7)
-    {
-      return expected_motors_;  // mimic: invalid
-    }
-    return arm_index * kMotorsPerArm + offset;
-  }
-
-  if (joint_index < 7)
-  {
-    return joint_index;
-  }
-  return expected_motors_;
-}
-
-size_t PantheraHardwareInterface::jointIndexFromMotorIndex(size_t motor_index) const
-{
-  if (full_arm_layout_)
-  {
-    const size_t arm_index = motor_index / kMotorsPerArm;
-    const size_t offset = motor_index % kMotorsPerArm;
-    return arm_index * kJointsPerArm + offset;
-  }
-  return motor_index;
+  // 每臂最后一个关节（offset 6）是夹爪
+  return joint_index % kMotorsPerArm == (kMotorsPerArm - 1);
 }
 
 double PantheraHardwareInterface::jointPositionToMotorPosition(
@@ -286,23 +175,14 @@ bool PantheraHardwareInterface::isValidJointFeedback(double position) const
 
 bool PantheraHardwareInterface::allArmMotorsHaveValidFeedback() const
 {
-  if (!robot_ || !validateMotorCount("feedback_check"))
-  {
-    return false;
-  }
-
+  // 只检查 6 个臂关节；夹爪初始反馈允许为 0（初始值 0.01 m）
   for (size_t arm_index = 0; arm_index < arm_count_; ++arm_index)
   {
-    const size_t joint_base = full_arm_layout_ ? arm_index * kJointsPerArm : 0;
-
-    for (size_t joint_offset = 0; joint_offset < kArmJointCount; ++joint_offset)
+    for (size_t offset = 0; offset < kArmJointCount; ++offset)
     {
-      const size_t joint_index = joint_base + joint_offset;
-      if (joint_index >= hw_positions_.size())
-      {
-        return false;
-      }
-      if (!isValidJointFeedback(hw_positions_[joint_index]))
+      const size_t joint_index = arm_index * kMotorsPerArm + offset;
+      if (joint_index >= latest_positions_.size() ||
+        !isValidJointFeedback(latest_positions_[joint_index]))
       {
         return false;
       }
@@ -319,11 +199,7 @@ bool PantheraHardwareInterface::waitForValidMotorFeedback(
 
   while (std::chrono::steady_clock::now() < deadline)
   {
-    if (read(rclcpp::Time(0, 0, RCL_ROS_TIME), rclcpp::Duration::from_seconds(0.01)) !=
-      hardware_interface::return_type::OK)
-    {
-      return false;
-    }
+    pollRobotState();
     if (allArmMotorsHaveValidFeedback())
     {
       RCLCPP_INFO(
@@ -385,7 +261,7 @@ hardware_interface::CallbackReturn PantheraHardwareInterface::on_init(
   const auto mode_it = info_.hardware_parameters.find("control_mode");
   control_mode_ = mode_it == info_.hardware_parameters.end() ? "position_velocity" : mode_it->second;
 
-  if (!resolveArmLayout() || !validateJointLayout())
+  if (!resolveArmLayout())
   {
     return hardware_interface::CallbackReturn::ERROR;
   }
@@ -404,18 +280,6 @@ hardware_interface::CallbackReturn PantheraHardwareInterface::on_init(
       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return value == "true" || value == "1" || value == "yes" || value == "on";
   };
-
-  command_debug_enabled_ = parse_bool_parameter("command_debug_enabled", false);
-  if (const auto it = info_.hardware_parameters.find("command_debug_period");
-    it != info_.hardware_parameters.end())
-  {
-    command_debug_period_ = std::stod(it->second);
-  }
-  if (!std::isfinite(command_debug_period_) || command_debug_period_ <= 0.0)
-  {
-    command_debug_period_ = 1.0;
-  }
-  last_command_debug_time_ = std::chrono::steady_clock::now();
 
   if (const auto it = info_.hardware_parameters.find("arm_velocity_filter_alpha");
     it != info_.hardware_parameters.end())
@@ -516,9 +380,7 @@ hardware_interface::CallbackReturn PantheraHardwareInterface::on_init(
     formatVector(shutdown_home_positions_).c_str(),
     shutdown_home_timeout_sec_, shutdown_home_tolerance_, shutdown_home_velocity_);
 
-  use_velocity_commands_ = (control_mode_ == "full_control");
-  use_effort_commands_ = (control_mode_ == "full_control");
-  use_gain_commands_ = (control_mode_ == "full_control");
+  full_control_ = (control_mode_ == "full_control");
 
   hw_positions_.resize(info_.joints.size(), std::numeric_limits<double>::quiet_NaN());
   hw_velocities_.resize(info_.joints.size(), std::numeric_limits<double>::quiet_NaN());
@@ -536,6 +398,16 @@ hardware_interface::CallbackReturn PantheraHardwareInterface::on_init(
   filtered_motor_command_velocities_.assign(expected_motors_, 0.0);
   last_gripper_command_m_.assign(arm_count_, std::numeric_limits<double>::quiet_NaN());
   has_last_motor_command_positions_ = false;
+
+  // 共享缓冲（RT 线程与后台 IO 线程通过 io_mutex_ 交换）
+  latest_positions_.resize(info_.joints.size(), 0.0);
+  latest_velocities_.resize(info_.joints.size(), 0.0);
+  latest_efforts_.resize(info_.joints.size(), 0.0);
+  cmd_positions_.resize(info_.joints.size(), 0.0);
+  cmd_velocities_.resize(info_.joints.size(), 0.0);
+  cmd_efforts_.resize(info_.joints.size(), 0.0);
+  cmd_kp_.resize(info_.joints.size(), 0.0);
+  cmd_kd_.resize(info_.joints.size(), 0.0);
 
   for (size_t i = 0; i < info_.joints.size(); ++i)
   {
@@ -613,13 +485,11 @@ hardware_interface::CallbackReturn PantheraHardwareInterface::on_configure(
     return hardware_interface::CallbackReturn::ERROR;
   }
 
-  if (!validateMotorCount("on_configure") || !validateStorageLayout("on_configure"))
+  if (!validateMotorCount("on_configure"))
   {
     return hardware_interface::CallbackReturn::ERROR;
   }
 
-  robot_->send_get_motor_state_cmd();
-  robot_->motor_send_cmd();
   if (!waitForValidMotorFeedback("on_configure", 3000))
   {
     RCLCPP_WARN(
@@ -627,10 +497,7 @@ hardware_interface::CallbackReturn PantheraHardwareInterface::on_configure(
       "Proceeding with partial motor feedback; startup may be unstable until all motors respond");
   }
 
-  return read(rclcpp::Time(0, 0, RCL_ROS_TIME), rclcpp::Duration::from_seconds(0.01)) ==
-           hardware_interface::return_type::OK ?
-           hardware_interface::CallbackReturn::SUCCESS :
-           hardware_interface::CallbackReturn::ERROR;
+  return hardware_interface::CallbackReturn::SUCCESS;
 }
 
 std::vector<hardware_interface::StateInterface>
@@ -658,11 +525,6 @@ PantheraHardwareInterface::export_command_interfaces()
   std::vector<hardware_interface::CommandInterface> command_interfaces;
   for (size_t i = 0; i < info_.joints.size(); ++i)
   {
-    if (isMimicGripperJoint(i))
-    {
-      continue;
-    }
-
     command_interfaces.emplace_back(
       info_.joints[i].name, hardware_interface::HW_IF_POSITION, &hw_commands_positions_[i]);
 
@@ -698,13 +560,12 @@ hardware_interface::CallbackReturn PantheraHardwareInterface::on_activate(
     return hardware_interface::CallbackReturn::ERROR;
   }
 
+  // 以当前实测位姿作为初始保持指令（拒绝 SDK 占位 999 / NaN，防止使能后失控）
   for (size_t joint_index = 0; joint_index < info_.joints.size(); ++joint_index)
   {
-    // Hold current pose until a controller starts writing valid commands.
-    // Reject SDK placeholder 999 / NaN — those cause runaway on enable.
-    if (isValidJointFeedback(hw_positions_[joint_index]))
+    if (isValidJointFeedback(latest_positions_[joint_index]))
     {
-      hw_commands_positions_[joint_index] = hw_positions_[joint_index];
+      hw_commands_positions_[joint_index] = latest_positions_[joint_index];
     }
     hw_commands_velocities_[joint_index] = 0.0;
     hw_commands_efforts_[joint_index] = 0.0;
@@ -712,25 +573,17 @@ hardware_interface::CallbackReturn PantheraHardwareInterface::on_activate(
     hw_commands_kd_[joint_index] = kd_gains_[joint_index];
   }
 
+  // 初始化速度前馈 / 夹爪跟踪状态（关节与电机一一对应）
   for (size_t motor_index = 0; motor_index < expected_motors_; ++motor_index)
   {
-    const size_t joint_index = jointIndexFromMotorIndex(motor_index);
-    if (joint_index >= info_.joints.size())
-    {
-      continue;
-    }
     last_motor_command_positions_[motor_index] =
-      jointPositionToMotorPosition(joint_index, hw_commands_positions_[joint_index]);
+      jointPositionToMotorPosition(motor_index, hw_commands_positions_[motor_index]);
     filtered_motor_command_velocities_[motor_index] = 0.0;
   }
   for (size_t arm_index = 0; arm_index < arm_count_; ++arm_index)
   {
-    const size_t joint_index = full_arm_layout_ ?
-      arm_index * kJointsPerArm + 6 : 6;
-    if (joint_index < info_.joints.size() && isPrimaryGripperJoint(joint_index))
-    {
-      last_gripper_command_m_[arm_index] = hw_commands_positions_[joint_index];
-    }
+    const size_t joint_index = arm_index * kMotorsPerArm + (kMotorsPerArm - 1);
+    last_gripper_command_m_[arm_index] = hw_commands_positions_[joint_index];
   }
   has_last_motor_command_positions_ = true;
 
@@ -746,52 +599,47 @@ hardware_interface::CallbackReturn PantheraHardwareInterface::on_activate(
     return hardware_interface::CallbackReturn::ERROR;
   }
 
+  // 激活完成后启动后台 IO 线程接管电机指令与状态轮询
+  startIoThread();
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
 void PantheraHardwareInterface::sendActivateHoldCommand()
 {
-  if (!robot_ || !validateMotorCount("activate_hold"))
+  if (!robot_)
   {
     return;
   }
 
   for (size_t motor_index = 0; motor_index < expected_motors_; ++motor_index)
   {
-    const bool is_gripper_motor = ((motor_index + 1) % kMotorsPerArm) == 0;
-    if (is_gripper_motor)
+    // 夹爪由夹爪控制器接管，激活保持只下臂关节
+    if (isPrimaryGripperJoint(motor_index))
     {
       continue;
     }
 
-    const size_t joint_index = jointIndexFromMotorIndex(motor_index);
-    if (joint_index >= info_.joints.size())
-    {
-      continue;
-    }
-
-    if (!isValidJointFeedback(hw_positions_[joint_index]))
+    if (!isValidJointFeedback(latest_positions_[motor_index]))
     {
       RCLCPP_ERROR(
         rclcpp::get_logger(kLoggerName),
-        "Activate hold skipped motor %zu (joint %zu): invalid feedback %.3f",
-        motor_index, joint_index, hw_positions_[joint_index]);
+        "Activate hold skipped motor %zu: invalid feedback %.3f",
+        motor_index, latest_positions_[motor_index]);
       continue;
     }
     const double motor_pos =
-      jointPositionToMotorPosition(joint_index, hw_positions_[joint_index]);
-    const double kp = joint_index < kp_gains_.size() ? kp_gains_[joint_index] : 4.0;
-    const double kd = joint_index < kd_gains_.size() ? kd_gains_[joint_index] : 0.5;
+      jointPositionToMotorPosition(motor_index, latest_positions_[motor_index]);
 
     auto * motor = robot_->Motors[motor_index];
-    if (control_mode_ == "full_control" || control_mode_ == "pd_control")
+    if (full_control_ || control_mode_ == "pd_control")
     {
-      motor->pos_vel_tqe_kp_kd(motor_pos, 0.0f, 0.0f, kp, kd);
+      motor->pos_vel_tqe_kp_kd(
+        motor_pos, 0.0f, 0.0f, kp_gains_[motor_index], kd_gains_[motor_index]);
     }
     else
     {
-      const double max_tqe = joint_index < max_torques_.size() ? max_torques_[joint_index] : 10.0;
-      motor->pos_vel_MAXtqe(motor_pos, 0.0f, static_cast<float>(max_tqe));
+      motor->pos_vel_MAXtqe(
+        motor_pos, 0.0f, static_cast<float>(max_torques_[motor_index]));
     }
   }
   robot_->motor_send_cmd();
@@ -800,6 +648,11 @@ void PantheraHardwareInterface::sendActivateHoldCommand()
 hardware_interface::CallbackReturn PantheraHardwareInterface::on_deactivate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
+  // 先停止后台 IO 线程，避免与下面的阻塞式 SDK 调用并发访问 robot_
+  stopIoThread();
+  has_last_motor_command_positions_ = false;
+  last_gripper_command_m_.assign(arm_count_, std::numeric_limits<double>::quiet_NaN());
+
   if (robot_)
   {
     try
@@ -827,19 +680,13 @@ hardware_interface::CallbackReturn PantheraHardwareInterface::on_deactivate(
       }
     }
   }
-  has_last_motor_command_positions_ = false;
-  last_gripper_command_m_.assign(arm_count_, std::numeric_limits<double>::quiet_NaN());
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
 void PantheraHardwareInterface::moveToShutdownHomeThenStop()
 {
-  if (!robot_ || !validateMotorCount("shutdown_home"))
+  if (!robot_)
   {
-    if (robot_)
-    {
-      robot_->set_stop();
-    }
     return;
   }
 
@@ -914,12 +761,11 @@ void PantheraHardwareInterface::moveToShutdownHomeThenStop()
     for (size_t arm_index = 0; arm_index < arm_count_; ++arm_index)
     {
       const size_t motor_base = arm_index * kMotorsPerArm;
-      const size_t joint_base = full_arm_layout_ ? arm_index * kJointsPerArm : 0;
 
       for (size_t joint_offset = 0; joint_offset < kArmJointCount; ++joint_offset)
       {
         const size_t motor_index = motor_base + joint_offset;
-        const size_t joint_index = joint_base + joint_offset;
+        const size_t joint_index = motor_index;  // 关节与电机一一对应
         const double start = start_positions[arm_index * kArmJointCount + joint_offset];
         const double goal = shutdown_home_positions_[joint_offset];
         // Interpolated command: start → goal (never a one-shot assignment to 0).
@@ -942,10 +788,9 @@ void PantheraHardwareInterface::moveToShutdownHomeThenStop()
       }
 
       const size_t gripper_motor_index = motor_base + kArmJointCount;
-      const size_t gripper_joint_index = joint_base + kArmJointCount;
       const double grip_tqe =
-        (gripper_joint_index < max_torques_.size() && max_torques_[gripper_joint_index] > 0.0)
-          ? max_torques_[gripper_joint_index]
+        (gripper_motor_index < max_torques_.size() && max_torques_[gripper_motor_index] > 0.0)
+          ? max_torques_[gripper_motor_index]
           : 3.0;
       robot_->Motors[gripper_motor_index]->pos_vel_MAXtqe(
         0.0f, 0.0f, static_cast<float>(grip_tqe));
@@ -965,16 +810,15 @@ void PantheraHardwareInterface::moveToShutdownHomeThenStop()
     for (size_t arm_index = 0; arm_index < arm_count_; ++arm_index)
     {
       const size_t motor_base = arm_index * kMotorsPerArm;
-      const size_t joint_base = full_arm_layout_ ? arm_index * kJointsPerArm : 0;
       for (size_t joint_offset = 0; joint_offset < kArmJointCount; ++joint_offset)
       {
-        const size_t joint_index = joint_base + joint_offset;
+        const size_t joint_index = motor_base + joint_offset;
         const double urdf_tqe =
           (joint_index < max_torques_.size() && max_torques_[joint_index] > 0.0)
             ? max_torques_[joint_index]
             : 10.0;
         const double max_tqe = std::max(urdf_tqe, 80.0);
-        robot_->Motors[motor_base + joint_offset]->pos_vel_MAXtqe(
+        robot_->Motors[joint_index]->pos_vel_MAXtqe(
           static_cast<float>(shutdown_home_positions_[joint_offset]),
           0.0f,
           static_cast<float>(max_tqe));
@@ -989,79 +833,99 @@ void PantheraHardwareInterface::moveToShutdownHomeThenStop()
   robot_->set_stop();
 }
 
-hardware_interface::return_type PantheraHardwareInterface::read(
-  const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
+PantheraHardwareInterface::~PantheraHardwareInterface()
 {
-  if (!validateMotorCount("read") || !validateStorageLayout("read"))
-  {
-    return hardware_interface::return_type::ERROR;
-  }
+  stopIoThread();
+}
 
+void PantheraHardwareInterface::startIoThread()
+{
+  std::lock_guard<std::mutex> lock(io_mutex_);
+  if (io_thread_.joinable())
+  {
+    return;  // 已在运行
+  }
+  io_exit_ = false;
+  command_pending_ = false;
+  io_thread_ = std::thread(&PantheraHardwareInterface::ioThreadLoop, this);
+}
+
+void PantheraHardwareInterface::stopIoThread()
+{
+  {
+    std::lock_guard<std::mutex> lock(io_mutex_);
+    io_exit_ = true;
+  }
+  io_cv_.notify_all();
+  if (io_thread_.joinable())
+  {
+    io_thread_.join();
+  }
+}
+
+void PantheraHardwareInterface::ioThreadLoop()
+{
+  std::unique_lock<std::mutex> lock(io_mutex_);
+  while (!io_exit_)
+  {
+    // 命令到达立即唤醒发送；无命令时按 kPollPeriod 兜底轮询反馈
+    io_cv_.wait_for(lock, kPollPeriod, [this] { return io_exit_ || command_pending_; });
+    if (io_exit_)
+    {
+      break;
+    }
+    command_pending_ = false;
+    lock.unlock();
+
+    sendMotorCommands();  // 有新命令则下发；无命令则重发上次指令保持电机活跃
+    pollRobotState();     // 阻塞查询反馈，刷新 latest_*
+
+    lock.lock();
+  }
+}
+
+void PantheraHardwareInterface::pollRobotState()
+{
+  if (!robot_)
+  {
+    return;
+  }
   try
   {
+    // 阻塞式查询电机状态（内部异步收包线程维护缓存）
     robot_->send_get_motor_state_cmd();
     robot_->motor_send_cmd();
 
-    for (size_t arm_index = 0; arm_index < arm_count_; ++arm_index)
+    // 读取电机状态缓存，换算成关节单位（夹爪 rad -> m，其余 1:1）
+    std::vector<double> positions(info_.joints.size(), 0.0);
+    std::vector<double> velocities(info_.joints.size(), 0.0);
+    std::vector<double> efforts(info_.joints.size(), 0.0);
+    for (size_t motor_index = 0; motor_index < expected_motors_; ++motor_index)
     {
-      const size_t motor_base = arm_index * kMotorsPerArm;
-      const size_t joint_base = full_arm_layout_ ? arm_index * kJointsPerArm : 0;
-
-      for (size_t joint_offset = 0; joint_offset < kArmJointCount; ++joint_offset)
+      auto * state = robot_->Motors[motor_index]->get_current_motor_state();
+      if (isPrimaryGripperJoint(motor_index))
       {
-        auto * state = robot_->Motors[motor_base + joint_offset]->get_current_motor_state();
-        const size_t joint_index = joint_base + joint_offset;
-        const double position = state->position;
-        const double velocity = state->velocity;
-        const double torque = state->torque;
-
-        if (isValidJointFeedback(position))
-        {
-          hw_positions_[joint_index] = position;
-          hw_velocities_[joint_index] = velocity;
-          hw_efforts_[joint_index] = torque;
-        }
-        else
-        {
-          // Must use a stable Clock& (e.g. get_clock()). *Clock::make_shared() is a
-          // temporary — RCLCPP_*_THROTTLE init-captures it by reference and segfaults.
-          RCLCPP_WARN_THROTTLE(
-            rclcpp::get_logger(kLoggerName),
-            *get_clock(), 1000,
-            "Dropping invalid motor feedback for joint %zu (%s): pos=%.3f "
-            "(SDK placeholder is %.0f); keeping last good state",
-            joint_index,
-            info_.joints[joint_index].name.c_str(),
-            position, kInvalidMotorPosition);
-        }
+        positions[motor_index] = motorPositionToJointPosition(motor_index, state->position);
+        velocities[motor_index] = motorVelocityToJointVelocity(motor_index, state->velocity);
       }
-
-      const size_t gripper_joint = joint_base + 6;
-      if (gripper_joint < info_.joints.size() && isPrimaryGripperJoint(gripper_joint))
+      else
       {
-        auto * gripper_state =
-          robot_->Motors[motor_base + kArmJointCount]->get_current_motor_state();
-        const double gripper_position =
-          motorPositionToJointPosition(gripper_joint, gripper_state->position);
-        const double gripper_velocity =
-          motorVelocityToJointVelocity(gripper_joint, gripper_state->velocity);
-        const double gripper_torque = gripper_state->torque;
+        positions[motor_index] = state->position;
+        velocities[motor_index] = state->velocity;
+      }
+      efforts[motor_index] = state->torque;
+    }
 
-        if (isValidJointFeedback(gripper_position))
+    // 只更新有效反馈；SDK 占位 999 / NaN 保留上次值
+    {
+      std::lock_guard<std::mutex> lock(io_mutex_);
+      for (size_t joint_index = 0; joint_index < info_.joints.size(); ++joint_index)
+      {
+        if (isValidJointFeedback(positions[joint_index]))
         {
-          hw_positions_[gripper_joint] = gripper_position;
-          hw_velocities_[gripper_joint] = gripper_velocity;
-          hw_efforts_[gripper_joint] = gripper_torque;
-
-          const size_t mimic_joint = joint_base + 7;
-          if (mimic_joint < info_.joints.size() && isMimicGripperJoint(mimic_joint))
-          {
-            const double mimic_sign =
-              mimicUsesNegatedSign(info_.joints[mimic_joint].name) ? -1.0 : 1.0;
-            hw_positions_[mimic_joint] = mimic_sign * hw_positions_[gripper_joint];
-            hw_velocities_[mimic_joint] = mimic_sign * hw_velocities_[gripper_joint];
-            hw_efforts_[mimic_joint] = 0.0;
-          }
+          latest_positions_[joint_index] = positions[joint_index];
+          latest_velocities_[joint_index] = velocities[joint_index];
+          latest_efforts_[joint_index] = efforts[joint_index];
         }
       }
     }
@@ -1071,29 +935,36 @@ hardware_interface::return_type PantheraHardwareInterface::read(
     RCLCPP_ERROR_THROTTLE(
       rclcpp::get_logger(kLoggerName),
       *get_clock(), 1000,
-      "Failed to read hardware state: %s",
-      e.what());
-    return hardware_interface::return_type::ERROR;
+      "Failed to poll robot state: %s", e.what());
   }
-
-  return hardware_interface::return_type::OK;
 }
 
-hardware_interface::return_type PantheraHardwareInterface::write(
-  const rclcpp::Time & /*time*/, const rclcpp::Duration & period)
+void PantheraHardwareInterface::sendMotorCommands()
 {
-  if (!validateMotorCount("write") || !validateStorageLayout("write"))
+  if (!robot_)
   {
-    return hardware_interface::return_type::ERROR;
+    return;
   }
 
-  double dt = period.seconds();
-  if (!std::isfinite(dt) || dt <= 1e-4 || dt > 1.0)
+  // 按真实发送节拍推导速度前馈（500Hz 指令 ≈ 2ms）
+  const auto now = std::chrono::steady_clock::now();
+  const double dt = std::clamp(
+    std::chrono::duration<double>(now - last_io_send_time_).count(), 0.001, 0.1);
+  last_io_send_time_ = now;
+
+  // 在锁内拷贝命令快照与最新反馈（write() 在 RT 线程写入 cmd_*）
+  std::vector<double> cmd_pos, cmd_vel, cmd_eff, cmd_kp, cmd_kd, cur_pos;
   {
-    dt = 0.01;
+    std::lock_guard<std::mutex> lock(io_mutex_);
+    cmd_pos = cmd_positions_;
+    cmd_vel = cmd_velocities_;
+    cmd_eff = cmd_efforts_;
+    cmd_kp = cmd_kp_;
+    cmd_kd = cmd_kd_;
+    cur_pos = latest_positions_;
   }
 
-  // Seed from last good feedback / last command — never treat SDK 999 as a target.
+  // 以最新反馈 / 上次指令为种子，避免把 SDK 占位 999 当目标
   std::vector<double> motor_positions(expected_motors_, 0.0);
   std::vector<double> motor_velocities(expected_motors_, 0.0);
   std::vector<double> motor_efforts(expected_motors_, 0.0);
@@ -1102,86 +973,61 @@ hardware_interface::return_type PantheraHardwareInterface::write(
   std::vector<double> motor_kd(expected_motors_, 0.0);
   for (size_t motor_index = 0; motor_index < expected_motors_; ++motor_index)
   {
-    const size_t joint_index = jointIndexFromMotorIndex(motor_index);
-    if (joint_index >= info_.joints.size())
-    {
-      continue;
-    }
-    if (isValidJointFeedback(hw_positions_[joint_index]))
+    if (isValidJointFeedback(cur_pos[motor_index]))
     {
       motor_positions[motor_index] =
-        jointPositionToMotorPosition(joint_index, hw_positions_[joint_index]);
+        jointPositionToMotorPosition(motor_index, cur_pos[motor_index]);
     }
-    else if (has_last_motor_command_positions_ &&
-      motor_index < last_motor_command_positions_.size())
+    else if (has_last_motor_command_positions_)
     {
       motor_positions[motor_index] = last_motor_command_positions_[motor_index];
     }
-    motor_torque_limits[motor_index] =
-      joint_index < max_torques_.size() ? max_torques_[joint_index] : 10.0;
-    motor_kp[motor_index] = joint_index < kp_gains_.size() ? kp_gains_[joint_index] : 4.0;
-    motor_kd[motor_index] = joint_index < kd_gains_.size() ? kd_gains_[joint_index] : 0.5;
+    motor_torque_limits[motor_index] = max_torques_[motor_index];
+    motor_kp[motor_index] = kp_gains_[motor_index];
+    motor_kd[motor_index] = kd_gains_[motor_index];
   }
 
+  // 合并控制器指令到电机命令（关节与电机一一对应）
   for (size_t joint_index = 0; joint_index < info_.joints.size(); ++joint_index)
   {
-    if (isMimicGripperJoint(joint_index))
+    double cmd_position = cmd_pos[joint_index];
+    if (!std::isfinite(cmd_position) || !isValidJointFeedback(cmd_position))
     {
-      continue;
-    }
-
-    const size_t motor_index = motorIndexFromJointIndex(joint_index);
-    if (motor_index >= expected_motors_)
-    {
-      continue;
-    }
-
-    double cmd_pos = hw_commands_positions_[joint_index];
-    if (!std::isfinite(cmd_pos) || !isValidJointFeedback(cmd_pos))
-    {
-      // Invalid command (common right after claim): hold last good measured pose.
-      if (isValidJointFeedback(hw_positions_[joint_index]))
+      // 指令无效（如刚 claim 时）：保持实测位姿
+      if (isValidJointFeedback(cur_pos[joint_index]))
       {
-        cmd_pos = hw_positions_[joint_index];
+        cmd_position = cur_pos[joint_index];
       }
-      else if (has_last_motor_command_positions_ &&
-        motor_index < last_motor_command_positions_.size())
+      else if (has_last_motor_command_positions_)
       {
-        cmd_pos = motorPositionToJointPosition(
-          joint_index, last_motor_command_positions_[motor_index]);
+        cmd_position = motorPositionToJointPosition(
+          joint_index, last_motor_command_positions_[joint_index]);
       }
       else
       {
         continue;
       }
-      hw_commands_positions_[joint_index] = cmd_pos;
     }
 
-    double cmd_vel = hw_commands_velocities_[joint_index];
-    if (!std::isfinite(cmd_vel))
+    double cmd_velocity = cmd_vel[joint_index];
+    if (!std::isfinite(cmd_velocity))
     {
-      cmd_vel = 0.0;
-      hw_commands_velocities_[joint_index] = 0.0;
+      cmd_velocity = 0.0;
     }
 
-    double cmd_eff = 0.0;
-    if (control_mode_ == "full_control")
+    double cmd_effort = full_control_ ? cmd_eff[joint_index] : 0.0;
+    if (!std::isfinite(cmd_effort))
     {
-      cmd_eff = hw_commands_efforts_[joint_index];
-      if (!std::isfinite(cmd_eff))
-      {
-        cmd_eff = 0.0;
-        hw_commands_efforts_[joint_index] = 0.0;
-      }
+      cmd_effort = 0.0;
     }
 
-    motor_positions[motor_index] = jointPositionToMotorPosition(joint_index, cmd_pos);
-    motor_velocities[motor_index] = jointVelocityToMotorVelocity(joint_index, cmd_vel);
-    motor_efforts[motor_index] = cmd_eff;
-    motor_torque_limits[motor_index] = max_torques_[joint_index];
+    motor_positions[joint_index] = jointPositionToMotorPosition(joint_index, cmd_position);
+    motor_velocities[joint_index] = jointVelocityToMotorVelocity(joint_index, cmd_velocity);
+    motor_efforts[joint_index] = cmd_effort;
+    motor_torque_limits[joint_index] = max_torques_[joint_index];
 
-    double kp = use_gain_commands_ ? hw_commands_kp_[joint_index] : kp_gains_[joint_index];
-    double kd = use_gain_commands_ ? hw_commands_kd_[joint_index] : kd_gains_[joint_index];
+    double kp = full_control_ ? cmd_kp[joint_index] : kp_gains_[joint_index];
+    double kd = full_control_ ? cmd_kd[joint_index] : kd_gains_[joint_index];
     if (!std::isfinite(kp) || kp <= 0.0)
     {
       kp = kp_gains_[joint_index];
@@ -1190,30 +1036,27 @@ hardware_interface::return_type PantheraHardwareInterface::write(
     {
       kd = kd_gains_[joint_index];
     }
-    motor_kp[motor_index] = kp;
-    motor_kd[motor_index] = kd;
+    motor_kp[joint_index] = kp;
+    motor_kd[joint_index] = kd;
   }
 
+  // 推导速度前馈：死区 + 限幅 + 一阶低通滤波
   std::vector<double> derived_motor_velocities(expected_motors_, 0.0);
   for (size_t motor_index = 0; motor_index < expected_motors_; ++motor_index)
   {
-    const bool is_gripper = ((motor_index + 1) % kMotorsPerArm) == 0;
-    const size_t joint_index = jointIndexFromMotorIndex(motor_index);
-    if (joint_index >= info_.joints.size())
-    {
-      continue;
-    }
-    const double epsilon = is_gripper ? gripper_command_epsilon_ / gripper_rad_to_m_ :
-      arm_command_position_deadband_;
+    const bool is_gripper = isPrimaryGripperJoint(motor_index);
+    const double epsilon = is_gripper ? gripper_command_epsilon_ / gripper_rad_to_m_
+                                      : arm_command_position_deadband_;
 
-    const double command_delta = has_last_motor_command_positions_ ?
-      motor_positions[motor_index] - last_motor_command_positions_[motor_index] : 0.0;
+    const double command_delta = has_last_motor_command_positions_
+      ? motor_positions[motor_index] - last_motor_command_positions_[motor_index]
+      : 0.0;
 
     double target_error = 0.0;
-    if (std::isfinite(hw_positions_[joint_index]))
+    if (std::isfinite(cur_pos[motor_index]))
     {
       const double current_motor_position =
-        jointPositionToMotorPosition(joint_index, hw_positions_[joint_index]);
+        jointPositionToMotorPosition(motor_index, cur_pos[motor_index]);
       target_error = motor_positions[motor_index] - current_motor_position;
     }
 
@@ -1223,9 +1066,8 @@ hardware_interface::return_type PantheraHardwareInterface::write(
       continue;
     }
 
-    const double joint_velocity_limit = std::abs(max_velocities_[joint_index]);
     const double motor_velocity_limit_from_joint = std::abs(
-      jointVelocityToMotorVelocity(joint_index, joint_velocity_limit));
+      jointVelocityToMotorVelocity(motor_index, std::abs(max_velocities_[motor_index])));
     double velocity_limit = std::max(
       0.02, std::abs(motor_velocities[motor_index]) > 1e-9 ?
       std::abs(motor_velocities[motor_index]) :
@@ -1239,9 +1081,8 @@ hardware_interface::return_type PantheraHardwareInterface::write(
     }
     else if (control_mode_ != "pd_control" && std::abs(target_error) > epsilon)
     {
-      // pd_control: rely on MIT kp/kd when the position setpoint is steady.
-      // Chasing steady-state error with velocity feedforward can destabilize
-      // gravity-loaded joints (e.g. joint3) at startup.
+      // pd_control：位置设定点稳定时依赖 MIT kp/kd，不用速度前馈追稳态误差，
+      // 避免对重力负载关节（如 joint3）在启动时造成不稳定
       raw_velocity = std::copysign(velocity_limit, target_error);
     }
 
@@ -1255,21 +1096,22 @@ hardware_interface::return_type PantheraHardwareInterface::write(
   filtered_motor_command_velocities_ = derived_motor_velocities;
   has_last_motor_command_positions_ = true;
 
+  // 阻塞下发：全部臂关节合成一条指令帧
   try
   {
     for (size_t motor_index = 0; motor_index < expected_motors_; ++motor_index)
     {
-      const bool is_gripper_motor = ((motor_index + 1) % kMotorsPerArm) == 0;
-      if (is_gripper_motor)
+      if (isPrimaryGripperJoint(motor_index))
       {
-        continue;
+        continue;  // 夹爪在下方按需单独下发
       }
 
       auto * motor = robot_->Motors[motor_index];
-      if (control_mode_ == "full_control" || control_mode_ == "pd_control")
+      if (full_control_ || control_mode_ == "pd_control")
       {
-        const double velocity = control_mode_ == "full_control" ?
-          motor_velocities[motor_index] : derived_motor_velocities[motor_index];
+        const double velocity = full_control_
+          ? motor_velocities[motor_index]
+          : derived_motor_velocities[motor_index];
         motor->pos_vel_tqe_kp_kd(
           motor_positions[motor_index], velocity, motor_efforts[motor_index],
           motor_kp[motor_index], motor_kd[motor_index]);
@@ -1283,22 +1125,12 @@ hardware_interface::return_type PantheraHardwareInterface::write(
     }
     robot_->motor_send_cmd();
 
-    // Gripper commands separately when targets change (avoids dual-arm bus ignore).
+    // 夹爪：目标变化时才单独补发（避免双臂总线忽略）
     for (size_t arm_index = 0; arm_index < arm_count_; ++arm_index)
     {
-      const size_t joint_index = full_arm_layout_ ?
-        arm_index * kJointsPerArm + 6 : 6;
-      const size_t motor_index = arm_index * kMotorsPerArm + 6;
-      if (joint_index >= info_.joints.size() || !isPrimaryGripperJoint(joint_index))
-      {
-        continue;
-      }
-      const double gripper_pos_m = hw_commands_positions_[joint_index];
+      const size_t joint_index = arm_index * kMotorsPerArm + (kMotorsPerArm - 1);
+      const double gripper_pos_m = cmd_pos[joint_index];
       if (!std::isfinite(gripper_pos_m))
-      {
-        continue;
-      }
-      if (last_gripper_command_m_.size() <= arm_index)
       {
         continue;
       }
@@ -1308,17 +1140,18 @@ hardware_interface::return_type PantheraHardwareInterface::write(
         continue;
       }
 
-      auto * motor = robot_->Motors[motor_index];
+      auto * motor = robot_->Motors[joint_index];
       const double gripper_pos_rad = jointPositionToMotorPosition(joint_index, gripper_pos_m);
-      const double gripper_vel_joint = use_velocity_commands_ ?
-        hw_commands_velocities_[joint_index] : max_velocities_[joint_index];
+      const double gripper_vel_joint = full_control_
+        ? cmd_vel[joint_index]
+        : max_velocities_[joint_index];
       const double gripper_vel_rad =
         jointVelocityToMotorVelocity(joint_index, gripper_vel_joint);
 
-      if (control_mode_ == "full_control")
+      if (full_control_)
       {
         motor->pos_vel_tqe_kp_kd(
-          gripper_pos_rad, gripper_vel_rad, hw_commands_efforts_[joint_index],
+          gripper_pos_rad, gripper_vel_rad, cmd_eff[joint_index],
           kp_gains_[joint_index], kd_gains_[joint_index]);
       }
       else
@@ -1335,28 +1168,41 @@ hardware_interface::return_type PantheraHardwareInterface::write(
     RCLCPP_ERROR_THROTTLE(
       rclcpp::get_logger(kLoggerName),
       *get_clock(), 1000,
-      "Failed to write hardware command: %s",
-      e.what());
-    return hardware_interface::return_type::ERROR;
+      "Failed to send motor commands: %s", e.what());
   }
+}
 
-  if (command_debug_enabled_)
+hardware_interface::return_type PantheraHardwareInterface::read(
+  const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
+{
+  // 非阻塞：从后台 IO 线程维护的共享缓冲拷贝最新反馈
+  std::lock_guard<std::mutex> lock(io_mutex_);
+  std::copy(latest_positions_.begin(), latest_positions_.end(), hw_positions_.begin());
+  std::copy(latest_velocities_.begin(), latest_velocities_.end(), hw_velocities_.begin());
+  std::copy(latest_efforts_.begin(), latest_efforts_.end(), hw_efforts_.begin());
+  return hardware_interface::return_type::OK;
+}
+
+hardware_interface::return_type PantheraHardwareInterface::write(
+  const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
+{
+  // 非阻塞：把控制器指令快照交给后台 IO 线程发送
   {
-    const auto now = std::chrono::steady_clock::now();
-    const double elapsed =
-      std::chrono::duration<double>(now - last_command_debug_time_).count();
-    if (elapsed >= command_debug_period_)
-    {
-      RCLCPP_DEBUG(
-        rclcpp::get_logger(kLoggerName),
-        "Command positions=%s | state=%s | arms=%zu motors=%zu",
-        formatVector(hw_commands_positions_).c_str(),
-        formatVector(hw_positions_).c_str(),
-        arm_count_, expected_motors_);
-      last_command_debug_time_ = now;
-    }
+    std::lock_guard<std::mutex> lock(io_mutex_);
+    std::copy(
+      hw_commands_positions_.begin(), hw_commands_positions_.end(),
+      cmd_positions_.begin());
+    std::copy(
+      hw_commands_velocities_.begin(), hw_commands_velocities_.end(),
+      cmd_velocities_.begin());
+    std::copy(
+      hw_commands_efforts_.begin(), hw_commands_efforts_.end(),
+      cmd_efforts_.begin());
+    std::copy(hw_commands_kp_.begin(), hw_commands_kp_.end(), cmd_kp_.begin());
+    std::copy(hw_commands_kd_.begin(), hw_commands_kd_.end(), cmd_kd_.begin());
+    command_pending_ = true;
   }
-
+  io_cv_.notify_one();
   return hardware_interface::return_type::OK;
 }
 
