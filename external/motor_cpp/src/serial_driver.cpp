@@ -71,9 +71,9 @@ void serial_driver::recv_1for6_42()
                     // 残留字节会在后续循环里逐个被消费，不会造成阻塞。
                     if (SOF.len > sizeof(cdc_rx_message_data))
                     {
-                        std::cerr << "\033[1;31m" << "motor_cpp/src/serial_driver.cpp:recv_1for6_42: invalid frame len="
-                                  << SOF.len << " (max " << sizeof(cdc_rx_message_data)
-                                  << "), discarding & resyncing" << "\033[0m" << std::endl;
+                        // std::cerr << "\033[1;31m" << "motor_cpp/src/serial_driver.cpp:recv_1for6_42: invalid frame len="
+                        //           << SOF.len << " (max " << sizeof(cdc_rx_message_data)
+                        //           << "), discarding & resyncing" << "\033[0m" << std::endl;
                         continue;
                     }
                     read_bytes((uint8_t *)&cdc_rx_message_data, SOF.len);
