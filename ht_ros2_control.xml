@@ -5,7 +5,9 @@
     <description>
       Panthera-HT hardware interface driven by motor_cpp (one hightorque_robot::robot).
       Single arm uses 7 motors; dual arm uses 14. Motor count comes from YAML + joint layout.
-      full_control exports position/velocity/effort/kp/kd for OCS2 MIX; also supports pd_control and position_velocity.
+      Velocity commands are passed through as feedforward (0 when not written);
+      kp/kd are managed by hardware + ROS parameters (tunable via rqt), not exported
+      as command interfaces. All blocking SDK serial calls run on a background IO thread.
     </description>
   </class>
 </library>

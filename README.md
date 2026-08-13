@@ -77,14 +77,31 @@ sudo chmod a+rw /dev/ttyACM*
 
 | 参数 | 说明 |
 |------|------|
-| `control_mode:=full_control` | 默认；位置 + 速度 + 力矩 + kp/kd |
-| `control_mode:=pd_control` | 位置 + 力矩，kp/kd |
+| `control_mode:=full_control` | 默认；位置 + 速度 + 力矩（MIT kp/kd 由硬件参数管理） |
+| `control_mode:=pd_control` | 位置 + 力矩，kp/kd 由硬件参数管理 |
 | `control_mode:=position_velocity` | 位置 + 速度 + 最大力矩 |
 | `config_file:=...` | 覆盖单臂电机 YAML（默认本包 share 下 `Panthera.yaml`） |
 | `dual_config_file:=...` | 双臂电机 YAML（默认 `PantheraDual.yaml`） |
+| `max_torques:=...` | 每臂 7 值 CSV（6 臂关节 + 夹爪），力矩限幅；dual 自动拼接 |
+| `max_velocities:=...` | 每臂 7 值 CSV，速度上限（非 full_control 夹爪速度用） |
+| `joint_kp` / `joint_kd` | 每臂 6 值 CSV，臂关节增益；**同时暴露为 ROS 参数，rqt 可调** |
+| `gripper_kp` / `gripper_kd` | 夹爪增益标量；**ROS 参数，rqt 可调** |
+| `gripper_rad_to_m:=0.025` | 夹爪电机 rad ↔ 关节 m 换算 |
 
 Ctrl+C 关机：默认插值回 `shutdown_home` 后 `set_stop`（阻尼）。
 回零开关在描述包 xacro 硬件参数 `shutdown_return_home`（当前默认 `true`）。
+
+### 速度前馈与 kp/kd 管理
+
+- **速度前馈 = 控制器 velocity 命令透传**：控制器写了 velocity（如 OCS2 MIX / MoveIt）
+  即作为期望速度下发；未写 / 未 claim 即为 0。不再做位置差分推导（无死区/滤波/限幅参数）。
+- **kp/kd 不再作为命令接口导出**：由 URDF hardware 参数提供初始值，并在 `on_init`
+  覆盖为节点参数（`joint_kp`/`joint_kd`/`gripper_kp`/`gripper_kd`），IO 线程每 ~200ms
+  同步一次 —— 运行中用 `ros2 param set` / rqt 调节即时生效（如拖动模式低刚度）。
+- `perform_command_mode_switch` 会对停止使用的 velocity/effort 接口清零，
+  防止控制器切换后旧速度残留。
+- 注意：kp/kd 不再导出后，OCS2 自动降级 POSITION 模式（不写 kp/kd 与 HOLD 重力补偿
+  effort）；需要重力补偿时用 `ht_gravity_compensation` 包，或用 rqt 调大 `joint_kp`。
 
 ## 关节布局
 
