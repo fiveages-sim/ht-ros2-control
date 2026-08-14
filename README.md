@@ -71,6 +71,30 @@ sudo chmod a+rw /dev/ttyACM*
 
 无输出时先查 USB 连接与供电；也可将用户加入 `dialout` 组后重新登录：`sudo usermod -aG dialout $USER`。
 
+#### 多套机械臂同机（usb_select 控制盒选择）
+
+一个 Livelybot 控制盒是一个多路 USB 复合设备（7 对 CDC-ACM 接口 → 7 个 ttyACM，
+VID/PID 相同），双臂只用其中 2 路。多套机械臂同插时无法靠 VID/PID/序列号区分，
+由硬件参数 `usb_select` 在驱动层选择：
+
+- 默认 `auto`：检测到 **0 个**控制盒报错退出；**1 个**正常连接；**多个**报错退出并列出各盒路径。
+- 指定路径（如 `usb_select:=usb-0:1.2`）：只保留该控制盒的端口。
+  路径用 `udevadm info -n /dev/ttyACMx` 查询，支持 `1-1.2` / `usb-0:1.2` / 完整 `ID_PATH`，子串匹配。
+- 端口顺序已由 `list_serial_ports` 改为**名称排序**（原 `reverse(readdir)` 顺序随重启变化），
+  `serial_id 1,2` 恒对应控制盒通道 1/2（接线口）。
+- 串口数量不足时（`serial_id` 超出可用端口）报错退出，避免越界访问。
+
+启动时经描述包 xacro 透传（两个入口都支持 `xacro_usb_select:=` 前缀参数）：
+
+```bash
+# GC 连盒 A、OCS2 连盒 B
+ros2 launch ht_gravity_compensation gravity_compensation.launch.py hardware:=real \
+  xacro_usb_select:=usb-0:1.2 ...
+# quick_start.sh 真机启动：选"控制盒"菜单，或手动追加 xacro_usb_select:=usb-0:4.2
+```
+
+同一套控制盒的 7 路里只有接线的 2 路会被使用，其余空闲通道不受影响。
+
 ## 硬件参数
 
 由描述包 ros2_control xacro 传入本 HI（常用）：
@@ -82,6 +106,7 @@ sudo chmod a+rw /dev/ttyACM*
 | `control_mode:=position_velocity` | 位置 + 速度 + 最大力矩 |
 | `config_file:=...` | 覆盖单臂电机 YAML（默认本包 share 下 `Panthera.yaml`） |
 | `dual_config_file:=...` | 双臂电机 YAML（默认 `PantheraDual.yaml`） |
+| `usb_select:=auto` | 控制盒选择：`auto`=仅允许 1 个控制盒；或 USB 路径（多套同机时指定，见下文） |
 | `max_torques:=...` | 每臂 7 值 CSV（6 臂关节 + 夹爪），力矩限幅；dual 自动拼接 |
 | `max_velocities:=...` | 每臂 7 值 CSV，速度上限（非 full_control 夹爪速度用） |
 | `joint_kp` / `joint_kd` | 每臂 6 值 CSV，臂关节增益；**同时暴露为 ROS 参数，rqt 可调** |

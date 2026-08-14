@@ -50,6 +50,9 @@ struct MotorLayout
 struct HardwareConfig
 {
   std::string config_file;
+  /// 控制盒 USB 选择："auto"=自动检测（只允许一个控制盒）；或指定 USB 路径
+  /// （如 "1-1.2" / "usb-0:1.2"，子串匹配，从 udevadm info 复制的 ID_PATH/KERNELS 均可）
+  std::string usb_select = "auto";
   std::string control_mode = "position_velocity";
   bool full_control = false;
 

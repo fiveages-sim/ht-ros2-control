@@ -189,6 +189,8 @@ bool HardwareConfig::load(const hardware_interface::HardwareInfo & info, size_t 
     return false;
   }
 
+  usb_select = get("usb_select", "auto");
+
   control_mode = get("control_mode", "position_velocity");
   full_control = (control_mode == "full_control");
 
@@ -435,7 +437,8 @@ hardware_interface::CallbackReturn PantheraHardwareInterface::on_configure(
 {
   try
   {
-    robot_ = std::make_unique<hightorque_robot::robot>(config_.config_file);
+    robot_ = std::make_unique<hightorque_robot::robot>(
+      config_.config_file, config_.usb_select);
   }
   catch (const std::exception & e)
   {
