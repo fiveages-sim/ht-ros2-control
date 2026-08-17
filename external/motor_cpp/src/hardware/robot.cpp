@@ -1,6 +1,9 @@
 #include "robot.hpp"
 #include "parse_robot_params.hpp"
 #include <unistd.h>
+#include <limits.h>
+#include <cctype>
+#include <sstream>
 #include <yaml-cpp/yaml.h>
 #include <iostream>
 #include <iomanip>
@@ -12,7 +15,8 @@ namespace hightorque_robot
         init_robot("../robot_param/robot_config.yaml");
     }
 
-    robot::robot(const std::string& config_path)
+    robot::robot(const std::string& config_path, const std::string& usb_select)
+        : usb_select_(usb_select)
     {
         init_robot(config_path);
     }
@@ -308,9 +312,176 @@ namespace hightorque_robot
 
         closedir(directory);
 
-        std::reverse(serial_ports.begin(), serial_ports.end());
+        // 自然序（数值序）排序而非 reverse / 字典序：readdir 顺序由 devtmpfs 哈希
+        // 决定（重启可能变化）；字典序会让 ttyACM10 < ttyACM2（两位数口号时失效）。
+        // 数值序后 ttyACM0 < ttyACM1 < ... < ttyACM13（符号链接 ht_gc_0 < ht_gc_1
+        // 同理），serial_id 1,2 恒对应控制盒接口 0,1（接线通道），左右臂顺序确定。
+        std::sort(serial_ports.begin(), serial_ports.end(),
+            [](const std::string& a, const std::string& b) {
+                std::string na = a.substr(a.rfind('/') + 1);
+                std::string nb = b.substr(b.rfind('/') + 1);
+                size_t ia = 0, ib = 0;
+                while (ia < na.size() && ib < nb.size())
+                {
+                    char ca = na[ia], cb = nb[ib];
+                    if (std::isdigit((unsigned char)ca) && std::isdigit((unsigned char)cb))
+                    {
+                        size_t sa = ia, sb = ib;
+                        while (sa < na.size() && std::isdigit((unsigned char)na[sa])) sa++;
+                        while (sb < nb.size() && std::isdigit((unsigned char)nb[sb])) sb++;
+                        unsigned long va = std::stoul(na.substr(ia, sa - ia));
+                        unsigned long vb = std::stoul(nb.substr(ib, sb - ib));
+                        if (va != vb) return va < vb;
+                        ia = sa; ib = sb;
+                    }
+                    else
+                    {
+                        if (ca != cb) return ca < cb;
+                        ia++; ib++;
+                    }
+                }
+                return na.size() < nb.size();
+            });
 
         return serial_ports;
+    }
+
+
+    robot::UsbId robot::usb_id_of(const std::string& dev) const
+    {
+        UsbId id;
+        char rp[PATH_MAX];
+        // 支持符号链接（如 /dev/ht_gc_0）：先解析到真实 /dev/ttyACMx
+        if (realpath(dev.c_str(), rp) == nullptr)
+            return id;
+        std::string real = rp;
+        std::string name = real;
+        if (name.rfind("/dev/", 0) == 0)
+            name = name.substr(5);   // ttyACM3
+        std::string link = "/sys/class/tty/" + name + "/device";
+        if (realpath(link.c_str(), rp) == nullptr)
+            return id;
+        id.syspath = rp;
+        // 例: /sys/devices/pci0000:00/0000:00:14.0/usb1/1-1/1-1.2/1-1.2:1.0/tty/ttyACM0
+        // 从后往前找形如 "1-1.2"（数字-数字[.数字...]，无冒号）的段 = USB 设备自身
+        std::stringstream ss(id.syspath);
+        std::string seg;
+        std::vector<std::string> segs;
+        while (std::getline(ss, seg, '/'))
+            if (!seg.empty())
+                segs.push_back(seg);
+        bool usb_before = false;
+        for (int i = (int)segs.size() - 1; i >= 0; --i)
+        {
+            const std::string& s = segs[i];
+            bool shape_ok = !s.empty() && std::isdigit((unsigned char)s[0])
+                && s.find('-') != std::string::npos && s.find(':') == std::string::npos;
+            if (shape_ok)
+            {
+                bool all_ok = true;
+                for (char c : s)
+                    if (!std::isdigit((unsigned char)c) && c != '-' && c != '.')
+                    { all_ok = false; break; }
+                if (all_ok)
+                {
+                    for (int j = i - 1; j >= 0; --j)
+                        if (segs[j].rfind("usb", 0) == 0) { usb_before = true; break; }
+                    if (usb_before)
+                    {
+                        id.kernels = s;
+                        size_t dash = s.find('-');
+                        id.id_path = "usb-0:" + s.substr(dash + 1);
+                    }
+                    break;
+                }
+            }
+        }
+        return id;
+    }
+
+
+    bool robot::usb_select_matches(const UsbId& id, const std::string& select) const
+    {
+        if (select.empty() || select == "auto")
+            return true;
+        // 三种表示任一种双向子串匹配即命中：
+        //   kernels: "1-1.2"           <- udev KERNELS
+        //   id_path: "usb-0:1.2"       <- udev ID_PATH（不含接口段）
+        //   syspath: 完整 sysfs 路径    <- /sys/class/tty 的 realpath
+        const std::string* haystacks[] = { &id.kernels, &id.id_path, &id.syspath };
+        for (const std::string* h : haystacks)
+        {
+            if (h->empty())
+                continue;
+            if (h->find(select) != std::string::npos)
+                return true;
+            if (select.find(*h) != std::string::npos)
+                return true;
+        }
+        return false;
+    }
+
+
+    void robot::print_usb_boxes(const std::vector<std::string>& candidates) const
+    {
+        std::cout << "检测到的控制盒端口（供 usb_select 选择）:" << std::endl;
+        for (const std::string& p : candidates)
+        {
+            UsbId id = usb_id_of(p);
+            std::cout << "  " << p << "  usb=" << (id.kernels.empty() ? "?" : id.kernels)
+                      << "  ID_PATH=" << (id.id_path.empty() ? "?" : id.id_path) << std::endl;
+        }
+        std::cout << "可通过启动参数指定控制盒：xacro_usb_select:=<路径>（如 1-1.2 或 usb-0:1.2）"
+                  << std::endl;
+    }
+
+
+    std::vector<std::string> robot::select_usb_ports(const std::vector<std::string>& candidates)
+    {
+        if (usb_select_ == "auto")
+        {
+            // 统计控制盒数量：按 USB 设备 sysname 去重（一个控制盒 = 一个 USB 设备）
+            std::vector<std::string> boxes;
+            for (const std::string& p : candidates)
+            {
+                UsbId id = usb_id_of(p);
+                if (id.kernels.empty())
+                    continue;
+                if (std::find(boxes.begin(), boxes.end(), id.kernels) == boxes.end())
+                    boxes.push_back(id.kernels);
+            }
+            if (boxes.empty())
+            {
+                std::cerr << "\033[1;31m未找到可用的控制盒串口（USB 连接 / 供电 / 权限）\033[0m" << std::endl;
+                exit(-1);
+            }
+            if (boxes.size() > 1)
+            {
+                std::cerr << "\033[1;31m检测到 " << boxes.size()
+                          << " 个控制盒，请用 xacro_usb_select:= 指定本启动要连接的控制盒\033[0m"
+                          << std::endl;
+                print_usb_boxes(candidates);
+                exit(-1);
+            }
+            return candidates;  // 只有一个控制盒：全部候选口都属于它
+        }
+        // 指定路径：只保留匹配的控制盒端口
+        std::vector<std::string> filtered;
+        for (const std::string& p : candidates)
+        {
+            UsbId id = usb_id_of(p);
+            if (usb_select_matches(id, usb_select_))
+                filtered.push_back(p);
+        }
+        if (filtered.empty())
+        {
+            std::cerr << "\033[1;31musb_select=" << usb_select_
+                      << " 未匹配到任何端口（请用 udevadm info -n /dev/ttyACMx 查看路径）\033[0m"
+                      << std::endl;
+            print_usb_boxes(candidates);
+            exit(-1);
+        }
+        return filtered;
     }
 
 
@@ -320,16 +491,24 @@ namespace hightorque_robot
         ser_recv_threads.clear();
         str.clear();   
         std::vector<std::string> ports = list_serial_ports(Serial_Type);
+        std::vector<std::string> filtered;
         std::cout << "Serial Port List: " << std::endl;
         for (const std::string& port : ports) 
         {   
             const int8_t r = serial_pid_vid(port.c_str());
             if (r > 0)
             {
-                std::cout << "Serial Port" << str.size() << " = " << port << std::endl;
-                str.push_back(port);
+                std::cout << "Serial Port" << filtered.size() << " = " << port << std::endl;
+                filtered.push_back(port);
             }
         }
+
+        // 控制盒选择（usb_select）：auto=仅允许 1 个控制盒（多于 1 个报错退出并列出）；
+        // 指定路径时只保留该控制盒的端口。多套机械臂同机时各启动指定自己的控制盒。
+        std::cout << "\033[1;32musb_select=" << usb_select_ << "\033[0m" << std::endl;
+        filtered = select_usb_ports(filtered);
+        std::cout << "Using " << filtered.size() << " serial port(s)" << std::endl;
+        str = filtered;
 
         for(auto board_params: robot_params.CANboards)
         {
@@ -340,6 +519,14 @@ namespace hightorque_robot
 
                 serial_id_old.push_back(serial_id);
 
+                if (serial_id - 1 >= (int)str.size())
+                {
+                    std::cerr << "\033[1;31mserial_id " << serial_id
+                              << " 超出可用端口数 " << str.size()
+                              << "（控制盒接线通道不足，或 usb_select 选错了控制盒）\033[0m"
+                              << std::endl;
+                    exit(-1);
+                }
                 serial_driver *s = new serial_driver(&str[serial_id - 1], Seial_baudrate, canport_error_output_flag);
                 ser.push_back(s);
                 ser_recv_threads.push_back(std::thread(&serial_driver::recv_1for6_42, s));
