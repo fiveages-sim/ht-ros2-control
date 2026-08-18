@@ -1,3 +1,4 @@
+# Single Arm
 robot:
   robot_name: "Panthera-HT"
   Serial_Type: "/dev/ttyACM"
