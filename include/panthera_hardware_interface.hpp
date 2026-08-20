@@ -182,7 +182,6 @@ private:
   // ---- IO 线程私有（仅 IO 线程访问，无需加锁） ----
   std::vector<double> last_motor_command_positions_;
   bool has_last_motor_command_positions_ = false;
-  std::vector<double> last_gripper_command_m_;  // 每臂一个，按需下发判据
   int gain_refresh_counter_ = 0;
 };
 

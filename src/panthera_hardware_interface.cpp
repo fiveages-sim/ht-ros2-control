@@ -807,7 +807,6 @@ IoLoop::IoLoop(
   latest_positions_.assign(n, 0.0);
   latest_velocities_.assign(n, 0.0);
   latest_efforts_.assign(n, 0.0);
-  last_gripper_command_m_.assign(layout.arm_count, std::numeric_limits<double>::quiet_NaN());
 }
 
 IoLoop::~IoLoop()
@@ -938,7 +937,6 @@ void IoLoop::seedCommands(const std::vector<double> & joint_positions)
     last_motor_command_positions_[i] = toMotorPosition(i, joint_positions[i]);
   }
   has_last_motor_command_positions_ = true;
-  last_gripper_command_m_.assign(layout_.arm_count, std::numeric_limits<double>::quiet_NaN());
   pending_ = true;
 }
 
@@ -1113,20 +1111,13 @@ void IoLoop::sendMotorCommands()
           config_.motor_max_torques[motor_index]);
       }
     }
-    robot_.motor_send_cmd();
 
-    // 夹爪：目标变化时才单独补发一帧（避免双臂总线忽略重复下发）。
-    // 判据为精确相等：命令来自同一 double 拷贝，目标不变时 diff 恒为 0。
+    // 夹爪：与臂关节合成同一条指令帧下发
     for (size_t arm_index = 0; arm_index < layout_.arm_count; ++arm_index)
     {
       const size_t joint_index = arm_index * MotorLayout::kMotorsPerArm + MotorLayout::kArmJointCount;
       const double gripper_pos_m = cmd_pos[joint_index];
       if (!std::isfinite(gripper_pos_m))
-      {
-        continue;
-      }
-      if (std::isfinite(last_gripper_command_m_[arm_index]) &&
-        last_gripper_command_m_[arm_index] == gripper_pos_m)
       {
         continue;
       }
@@ -1149,9 +1140,8 @@ void IoLoop::sendMotorCommands()
         motor->pos_vel_MAXtqe(
           gripper_pos_rad, gripper_vel_rad, config_.motor_max_torques[joint_index]);
       }
-      robot_.motor_send_cmd();
-      last_gripper_command_m_[arm_index] = gripper_pos_m;
     }
+    robot_.motor_send_cmd();
   }
   catch (const std::exception & e)
   {
