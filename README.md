@@ -101,14 +101,14 @@ ros2 launch ht_gravity_compensation gravity_compensation.launch.py hardware:=rea
 
 | 参数 | 说明 |
 |------|------|
-| `control_mode:=full_control` | 默认；位置 + 速度 + 力矩（MIT kp/kd 由硬件参数管理） |
-| `control_mode:=pd_control` | 位置 + 力矩，kp/kd 由硬件参数管理 |
-| `control_mode:=position_velocity` | 位置 + 速度 + 最大力矩 |
+| `control_mode:=mit` | 默认；位置 + 速度 + 力矩 + kp/kd（kp/kd 允许为 0，等效纯力矩前馈；旧名 `full_control` 仍兼容） |
+| `control_mode:=effort` | 纯力矩：直接下发控制器 effort 命令（SDK torque 接口） |
+| `control_mode:=position` | 纯位置：只下发位置命令（SDK position 接口） |
 | `config_file:=...` | 覆盖单臂电机 YAML（默认本包 share 下 `Panthera.yaml`） |
 | `dual_config_file:=...` | 双臂电机 YAML（默认 `PantheraDual.yaml`） |
 | `usb_select:=auto` | 控制盒选择：`auto`=仅允许 1 个控制盒；或 USB 路径（多套同机时指定，见下文） |
 | `max_torques:=...` | 每臂 7 值 CSV（6 臂关节 + 夹爪），力矩限幅；dual 自动拼接 |
-| `max_velocities:=...` | 每臂 7 值 CSV，速度上限（非 full_control 夹爪速度用） |
+| `max_velocities:=...` | 每臂 7 值 CSV，速度上限（mit 模式夹爪速度上限） |
 | `joint_kp` / `joint_kd` | 每臂 6 值 CSV，臂关节增益；**同时暴露为 ROS 参数，rqt 可调** |
 | `gripper_kp` / `gripper_kd` | 夹爪增益标量；**ROS 参数，rqt 可调** |
 | `gripper_rad_to_m:=0.025` | 夹爪电机 rad ↔ 关节 m 换算 |

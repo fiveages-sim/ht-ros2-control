@@ -191,8 +191,35 @@ bool HardwareConfig::load(const hardware_interface::HardwareInfo & info, size_t 
 
   usb_select = get("usb_select", "auto");
 
-  control_mode = get("control_mode", "position_velocity");
-  full_control = (control_mode == "full_control");
+  control_mode = get("control_mode", "mit");
+  // "full_control" 为旧名，向后兼容映射为 mit
+  if (control_mode == "full_control")
+  {
+    RCLCPP_WARN(
+      rclcpp::get_logger(kLoggerName),
+      "control_mode 'full_control' is deprecated, use 'mit' instead");
+    control_mode = "mit";
+  }
+  if (control_mode == "mit")
+  {
+    mode = ControlModeType::Mit;
+  }
+  else if (control_mode == "effort")
+  {
+    mode = ControlModeType::Effort;
+  }
+  else if (control_mode == "position")
+  {
+    mode = ControlModeType::Position;
+  }
+  else
+  {
+    RCLCPP_ERROR(
+      rclcpp::get_logger(kLoggerName),
+      "Invalid control_mode '%s': expected 'mit' | 'effort' | 'position'",
+      control_mode.c_str());
+    return false;
+  }
 
   gripper_rad_to_m = parseDoubleOrDefault(get("gripper_rad_to_m", "0.025"), 0.025);
   if (!std::isfinite(gripper_rad_to_m) || std::abs(gripper_rad_to_m) < 1e-9)
@@ -961,15 +988,19 @@ void IoLoop::sendActivateHold()
     const double motor_pos = toMotorPosition(motor_index, latest_positions_[motor_index]);
 
     auto * motor = robot_.Motors[motor_index];
-    if (config_.full_control || config_.control_mode == "pd_control")
+    switch (config_.mode)
     {
-      motor->pos_vel_tqe_kp_kd(
-        motor_pos, 0.0f, 0.0f, config_.motor_kp[motor_index], config_.motor_kd[motor_index]);
-    }
-    else
-    {
-      motor->pos_vel_MAXtqe(
-        motor_pos, 0.0f, static_cast<float>(config_.motor_max_torques[motor_index]));
+      case ControlModeType::Mit:
+        // kp/kd 允许为 0（等效纯力矩前馈）
+        motor->pos_vel_tqe_kp_kd(
+          motor_pos, 0.0f, 0.0f, config_.motor_kp[motor_index], config_.motor_kd[motor_index]);
+        break;
+      case ControlModeType::Effort:
+        motor->torque(0.0f);
+        break;
+      case ControlModeType::Position:
+        motor->position(motor_pos);
+        break;
     }
   }
   robot_.motor_send_cmd();
@@ -1072,7 +1103,9 @@ void IoLoop::sendMotorCommands()
       cmd_velocity = 0.0;
     }
 
-    double cmd_effort = config_.full_control ? cmd_eff[joint_index] : 0.0;
+    // mit / effort 模式透传控制器 effort 命令；position 模式忽略
+    double cmd_effort =
+      config_.mode != ControlModeType::Position ? cmd_eff[joint_index] : 0.0;
     if (!std::isfinite(cmd_effort))
     {
       cmd_effort = 0.0;
@@ -1097,18 +1130,21 @@ void IoLoop::sendMotorCommands()
       }
 
       auto * motor = robot_.Motors[motor_index];
-      if (config_.full_control || config_.control_mode == "pd_control")
+      switch (config_.mode)
       {
-        motor->pos_vel_tqe_kp_kd(
-          motor_positions[motor_index], motor_velocities[motor_index],
-          motor_efforts[motor_index],
-          config_.motor_kp[motor_index], config_.motor_kd[motor_index]);
-      }
-      else
-      {
-        motor->pos_vel_MAXtqe(
-          motor_positions[motor_index], motor_velocities[motor_index],
-          config_.motor_max_torques[motor_index]);
+        case ControlModeType::Mit:
+          // kp/kd 允许为 0（等效纯力矩前馈）
+          motor->pos_vel_tqe_kp_kd(
+            motor_positions[motor_index], motor_velocities[motor_index],
+            motor_efforts[motor_index],
+            config_.motor_kp[motor_index], config_.motor_kd[motor_index]);
+          break;
+        case ControlModeType::Effort:
+          motor->torque(motor_efforts[motor_index]);
+          break;
+        case ControlModeType::Position:
+          motor->position(motor_positions[motor_index]);
+          break;
       }
     }
 
@@ -1124,21 +1160,25 @@ void IoLoop::sendMotorCommands()
 
       auto * motor = robot_.Motors[joint_index];
       const double gripper_pos_rad = toMotorPosition(joint_index, gripper_pos_m);
-      const double gripper_vel_joint = config_.full_control
-        ? cmd_vel[joint_index]
-        : config_.motor_max_velocities[joint_index];
+      const double gripper_vel_joint =
+        config_.mode == ControlModeType::Mit
+          ? cmd_vel[joint_index]
+          : config_.motor_max_velocities[joint_index];
       const double gripper_vel_rad = toMotorVelocity(joint_index, gripper_vel_joint);
 
-      if (config_.full_control)
+      switch (config_.mode)
       {
-        motor->pos_vel_tqe_kp_kd(
-          gripper_pos_rad, gripper_vel_rad, cmd_eff[joint_index],
-          config_.motor_kp[joint_index], config_.motor_kd[joint_index]);
-      }
-      else
-      {
-        motor->pos_vel_MAXtqe(
-          gripper_pos_rad, gripper_vel_rad, config_.motor_max_torques[joint_index]);
+        case ControlModeType::Mit:
+          motor->pos_vel_tqe_kp_kd(
+            gripper_pos_rad, gripper_vel_rad, cmd_eff[joint_index],
+            config_.motor_kp[joint_index], config_.motor_kd[joint_index]);
+          break;
+        case ControlModeType::Effort:
+          motor->torque(cmd_eff[joint_index]);
+          break;
+        case ControlModeType::Position:
+          motor->position(gripper_pos_rad);
+          break;
       }
     }
     robot_.motor_send_cmd();

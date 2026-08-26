@@ -32,6 +32,17 @@ namespace ht_ros2_control
 namespace detail
 {
 
+/// 硬件控制模式：
+///   mit      —— 位置+速度+力矩+kp/kd（kp/kd 允许为 0，此时等效纯前馈）
+///   effort   —— 纯力矩（SDK torque 接口，直接下发控制器 effort 命令）
+///   position —— 纯位置（SDK position 接口）
+enum class ControlModeType
+{
+  Mit,
+  Effort,
+  Position,
+};
+
 /// 每臂关节布局：6 臂关节 + 1 夹爪 = 7 电机，关节与电机一一对应。
 struct MotorLayout
 {
@@ -53,8 +64,8 @@ struct HardwareConfig
   /// 控制盒 USB 选择："auto"=自动检测（只允许一个控制盒）；或指定 USB 路径
   /// （如 "1-1.2" / "usb-0:1.2"，子串匹配，从 udevadm info 复制的 ID_PATH/KERNELS 均可）
   std::string usb_select = "auto";
-  std::string control_mode = "position_velocity";
-  bool full_control = false;
+  std::string control_mode = "mit";
+  ControlModeType mode = ControlModeType::Mit;
 
   double gripper_rad_to_m = 0.025;
 
