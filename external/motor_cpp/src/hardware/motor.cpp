@@ -543,6 +543,8 @@ void motor::send_state_cmd()
 #include <chrono>
 void motor::fresh_data(uint8_t mode, uint8_t fault, int16_t position, int16_t velocity, int16_t torque)
 {
+    std::lock_guard<std::mutex> lock(feedback_mutex_);
+    feedback_received_ = std::chrono::steady_clock::now();
     data.num++;
     data.mode = mode;
     data.fault = fault;
@@ -706,4 +708,10 @@ uint8_t motor::get_tqe_adjust_flag()
 void motor::set_num()
 {
     data.num = 0;
+}
+
+motor::FeedbackSnapshot motor::feedback_snapshot() const
+{
+    std::lock_guard<std::mutex> lock(feedback_mutex_);
+    return {data, feedback_received_};
 }

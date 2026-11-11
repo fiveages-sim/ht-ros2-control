@@ -42,6 +42,7 @@ public:
     void set_reset();
     void set_conf_write();
     int set_conf_write(int id);
+    bool diagnostic_state_query();
     void send_get_motor_state_cmd();
     void send_get_motor_state_cmd2();
     void send_get_motor_version_cmd();

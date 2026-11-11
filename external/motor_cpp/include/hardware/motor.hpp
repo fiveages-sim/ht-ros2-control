@@ -2,6 +2,8 @@
 #define _MOTOR_H_
 #include "serial_struct.hpp"
 #include <stdint.h>
+#include <mutex>
+#include <chrono>
 #include <unordered_map>
 #include "parse_robot_params.hpp"
 
@@ -130,6 +132,15 @@ public:
     int pos_limit_flag = 0;     // 0 表示正常，1 表示超出上限， -1 表示超出下限
     int tor_limit_flag = 0;     // 0 表示正常，1 表示超出上限
 
+private:
+    mutable std::mutex feedback_mutex_;
+    std::chrono::steady_clock::time_point feedback_received_{};
+public:
+    struct FeedbackSnapshot {
+        motor_back_t state;
+        std::chrono::steady_clock::time_point received;
+    };
+    FeedbackSnapshot feedback_snapshot() const;
     motor(int _motor_num, int _CANport_num, int _CANboard_num, cdc_tr_message_s *_p_cdc_tx_message, int _id_max, MotorParams &motor_params);
     ~motor() {}
 

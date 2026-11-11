@@ -1,0 +1,569 @@
+{
+  "artifact": "/home/fiveages/upstream-ocs2-vr-eval-20261030/eval/artifacts/upstream-web-feedback-real-hold-20261030-01",
+  "full_observed_hold_s": 5.00091225,
+  "requested_window_s": 5.0,
+  "pcap_sha256": "6bc35457974bece2694e69d53b48a173dbe2fc9e7b962bfb07368b3fc452a17e",
+  "hold_duration_s": 5.0,
+  "window_USB_realtime_us": [
+    1793350734549492.2,
+    1793350739549492.2
+  ],
+  "per_motor": [
+    {
+      "motor_id": 1,
+      "rx_rows": 2500,
+      "unique_USB_times": 2500,
+      "unique_USB_rate_Hz": 500.0,
+      "rows_rate_Hz": 500.0,
+      "repeat_rows_same_USB_time": 0,
+      "gaps_ms": {
+        "n": 2499,
+        "min": 1.729,
+        "mean": 2.0000060024009603,
+        "std": 0.03626736401591185,
+        "p50": 2.0,
+        "p95": 2.062,
+        "p99": 2.103,
+        "max": 2.184
+      },
+      "max_silence_including_edges_ms": 2.184,
+      "bins_50ms_with_data": 100,
+      "bins_50ms_total": 100,
+      "bins_50ms_coverage": 1.0,
+      "fault_nonzero_rows": 0,
+      "MIT_rows": 2500,
+      "command_ranges": {
+        "q_rad": [
+          0.0012566370964050293,
+          0.0012566370964050293
+        ],
+        "dq_rad_s": [
+          0.0,
+          0.0
+        ],
+        "tau_ff_nm": [
+          0.0,
+          0.0
+        ],
+        "kp": [
+          39.99481166343106,
+          39.99481166343106
+        ],
+        "kd": [
+          3.9924080025590447,
+          3.9924080025590447
+        ]
+      },
+      "fresh_time_fraction": {
+        "10": 1.0,
+        "50": 1.0,
+        "100": 1.0,
+        "250": 1.0
+      }
+    },
+    {
+      "motor_id": 2,
+      "rx_rows": 2500,
+      "unique_USB_times": 2500,
+      "unique_USB_rate_Hz": 500.0,
+      "rows_rate_Hz": 500.0,
+      "repeat_rows_same_USB_time": 0,
+      "gaps_ms": {
+        "n": 2499,
+        "min": 1.729,
+        "mean": 2.0000060024009603,
+        "std": 0.03626736401591185,
+        "p50": 2.0,
+        "p95": 2.062,
+        "p99": 2.103,
+        "max": 2.184
+      },
+      "max_silence_including_edges_ms": 2.184,
+      "bins_50ms_with_data": 100,
+      "bins_50ms_total": 100,
+      "bins_50ms_coverage": 1.0,
+      "fault_nonzero_rows": 0,
+      "MIT_rows": 2500,
+      "command_ranges": {
+        "q_rad": [
+          0.0,
+          0.0
+        ],
+        "dq_rad_s": [
+          0.0,
+          0.0
+        ],
+        "tau_ff_nm": [
+          1.8617500000000002,
+          1.8617500000000002
+        ],
+        "kp": [
+          39.996018057866124,
+          39.996018057866124
+        ],
+        "kd": [
+          3.9974468479171157,
+          3.9974468479171157
+        ]
+      },
+      "fresh_time_fraction": {
+        "10": 1.0,
+        "50": 1.0,
+        "100": 1.0,
+        "250": 1.0
+      }
+    },
+    {
+      "motor_id": 3,
+      "rx_rows": 2500,
+      "unique_USB_times": 2500,
+      "unique_USB_rate_Hz": 500.0,
+      "rows_rate_Hz": 500.0,
+      "repeat_rows_same_USB_time": 0,
+      "gaps_ms": {
+        "n": 2499,
+        "min": 1.729,
+        "mean": 2.0000060024009603,
+        "std": 0.03626736401591185,
+        "p50": 2.0,
+        "p95": 2.062,
+        "p99": 2.103,
+        "max": 2.184
+      },
+      "max_silence_including_edges_ms": 2.184,
+      "bins_50ms_with_data": 100,
+      "bins_50ms_total": 100,
+      "bins_50ms_coverage": 1.0,
+      "fault_nonzero_rows": 0,
+      "MIT_rows": 2500,
+      "command_ranges": {
+        "q_rad": [
+          0.0012566370964050293,
+          0.0012566370964050293
+        ],
+        "dq_rad_s": [
+          0.0,
+          0.0
+        ],
+        "tau_ff_nm": [
+          4.150010000000001,
+          4.150010000000001
+        ],
+        "kp": [
+          39.996018057866124,
+          39.996018057866124
+        ],
+        "kd": [
+          3.9974468479171157,
+          3.9974468479171157
+        ]
+      },
+      "fresh_time_fraction": {
+        "10": 1.0,
+        "50": 1.0,
+        "100": 1.0,
+        "250": 1.0
+      }
+    },
+    {
+      "motor_id": 4,
+      "rx_rows": 2500,
+      "unique_USB_times": 2500,
+      "unique_USB_rate_Hz": 500.0,
+      "rows_rate_Hz": 500.0,
+      "repeat_rows_same_USB_time": 0,
+      "gaps_ms": {
+        "n": 2499,
+        "min": 1.729,
+        "mean": 2.0000060024009603,
+        "std": 0.03626736401591185,
+        "p50": 2.0,
+        "p95": 2.062,
+        "p99": 2.103,
+        "max": 2.184
+      },
+      "max_silence_including_edges_ms": 2.184,
+      "bins_50ms_with_data": 100,
+      "bins_50ms_total": 100,
+      "bins_50ms_coverage": 1.0,
+      "fault_nonzero_rows": 0,
+      "MIT_rows": 2500,
+      "command_ranges": {
+        "q_rad": [
+          0.020734512090682982,
+          0.020734512090682982
+        ],
+        "dq_rad_s": [
+          0.0,
+          0.0
+        ],
+        "tau_ff_nm": [
+          0.9678480000000002,
+          0.9678480000000002
+        ],
+        "kp": [
+          39.99481166343106,
+          39.99481166343106
+        ],
+        "kd": [
+          3.9924080025590447,
+          3.9924080025590447
+        ]
+      },
+      "fresh_time_fraction": {
+        "10": 1.0,
+        "50": 1.0,
+        "100": 1.0,
+        "250": 1.0
+      }
+    },
+    {
+      "motor_id": 5,
+      "rx_rows": 2500,
+      "unique_USB_times": 2500,
+      "unique_USB_rate_Hz": 500.0,
+      "rows_rate_Hz": 500.0,
+      "repeat_rows_same_USB_time": 0,
+      "gaps_ms": {
+        "n": 2499,
+        "min": 1.729,
+        "mean": 2.0000060024009603,
+        "std": 0.03626736401591185,
+        "p50": 2.0,
+        "p95": 2.062,
+        "p99": 2.103,
+        "max": 2.184
+      },
+      "max_silence_including_edges_ms": 2.184,
+      "bins_50ms_with_data": 100,
+      "bins_50ms_total": 100,
+      "bins_50ms_coverage": 1.0,
+      "fault_nonzero_rows": 0,
+      "MIT_rows": 2500,
+      "command_ranges": {
+        "q_rad": [
+          0.0018849556446075438,
+          0.0018849556446075438
+        ],
+        "dq_rad_s": [
+          0.0,
+          0.0
+        ],
+        "tau_ff_nm": [
+          0.0,
+          0.0
+        ],
+        "kp": [
+          39.99394267746595,
+          39.99394267746595
+        ],
+        "kd": [
+          3.9985577493889823,
+          3.9985577493889823
+        ]
+      },
+      "fresh_time_fraction": {
+        "10": 1.0,
+        "50": 1.0,
+        "100": 1.0,
+        "250": 1.0
+      }
+    },
+    {
+      "motor_id": 6,
+      "rx_rows": 2500,
+      "unique_USB_times": 2500,
+      "unique_USB_rate_Hz": 500.0,
+      "rows_rate_Hz": 500.0,
+      "repeat_rows_same_USB_time": 0,
+      "gaps_ms": {
+        "n": 2499,
+        "min": 1.729,
+        "mean": 2.0000060024009603,
+        "std": 0.03626736401591185,
+        "p50": 2.0,
+        "p95": 2.062,
+        "p99": 2.103,
+        "max": 2.184
+      },
+      "max_silence_including_edges_ms": 2.184,
+      "bins_50ms_with_data": 100,
+      "bins_50ms_total": 100,
+      "bins_50ms_coverage": 1.0,
+      "fault_nonzero_rows": 0,
+      "MIT_rows": 2500,
+      "command_ranges": {
+        "q_rad": [
+          -0.0018849556446075438,
+          -0.0018849556446075438
+        ],
+        "dq_rad_s": [
+          0.0,
+          0.0
+        ],
+        "tau_ff_nm": [
+          0.0,
+          0.0
+        ],
+        "kp": [
+          39.99394267746595,
+          39.99394267746595
+        ],
+        "kd": [
+          3.9985577493889823,
+          3.9985577493889823
+        ]
+      },
+      "fresh_time_fraction": {
+        "10": 1.0,
+        "50": 1.0,
+        "100": 1.0,
+        "250": 1.0
+      }
+    },
+    {
+      "motor_id": 7,
+      "rx_rows": 2500,
+      "unique_USB_times": 2500,
+      "unique_USB_rate_Hz": 500.0,
+      "rows_rate_Hz": 500.0,
+      "repeat_rows_same_USB_time": 0,
+      "gaps_ms": {
+        "n": 2499,
+        "min": 1.729,
+        "mean": 2.0000060024009603,
+        "std": 0.03626736401591185,
+        "p50": 2.0,
+        "p95": 2.062,
+        "p99": 2.103,
+        "max": 2.184
+      },
+      "max_silence_including_edges_ms": 2.184,
+      "bins_50ms_with_data": 100,
+      "bins_50ms_total": 100,
+      "bins_50ms_coverage": 1.0,
+      "fault_nonzero_rows": 0,
+      "MIT_rows": 2500,
+      "command_ranges": {
+        "q_rad": [
+          -0.014451326608657836,
+          -0.014451326608657836
+        ],
+        "dq_rad_s": [
+          0.0,
+          0.0
+        ],
+        "tau_ff_nm": [
+          0.0,
+          0.0
+        ],
+        "kp": [
+          4.994258102004319,
+          4.994258102004319
+        ],
+        "kd": [
+          0.09478154062197977,
+          0.09478154062197977
+        ]
+      },
+      "fresh_time_fraction": {
+        "10": 1.0,
+        "50": 1.0,
+        "100": 1.0,
+        "250": 1.0
+      }
+    }
+  ],
+  "HOLD_protocol_frames": {
+    "out:0xb0": 2500,
+    "in:0x0a": 2500
+  },
+  "HOLD_protocol_rates_Hz": {
+    "out:0xb0": 500.0,
+    "in:0x0a": 500.0
+  },
+  "protocol_wire_bytes": {
+    "out:0xb0": 192500,
+    "in:0x0a": 175000
+  },
+  "protocol_wire_bytes_per_s": {
+    "out:0xb0": 38500.0,
+    "in:0x0a": 35000.0
+  },
+  "USB_OUT_complete_delay_us": {
+    "out:0xb0": {
+      "n": 2500,
+      "min": 20,
+      "mean": 41.958,
+      "std": 11.622505581844218,
+      "p50": 43.0,
+      "p95": 62.0,
+      "p99": 72.0,
+      "max": 79
+    }
+  },
+  "MIT_submit_intervals_ms": {
+    "n": 2499,
+    "min": 1.725,
+    "mean": 2.0000152060824328,
+    "std": 0.03225838201385195,
+    "p50": 1.999,
+    "p95": 2.0511,
+    "p99": 2.093,
+    "max": 2.197
+  },
+  "USB_event_outcomes_in_window": {
+    "out_S_status_-115": 2500,
+    "out_C_status_0": 2500,
+    "in_C_status_0": 2500,
+    "in_S_status_-115": 2500
+  },
+  "feedback_frames": 2500,
+  "feedback_frames_with_duplicate_IDs": 0,
+  "feedback_frames_covering_all_7_IDs": 2500,
+  "top_feedback_ID_sequences": [
+    {
+      "sequence": [
+        5,
+        1,
+        2,
+        3,
+        4,
+        6,
+        7
+      ],
+      "frames": 527
+    },
+    {
+      "sequence": [
+        4,
+        1,
+        2,
+        3,
+        5,
+        6,
+        7
+      ],
+      "frames": 500
+    },
+    {
+      "sequence": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "frames": 449
+    },
+    {
+      "sequence": [
+        3,
+        1,
+        2,
+        4,
+        5,
+        6,
+        7
+      ],
+      "frames": 376
+    },
+    {
+      "sequence": [
+        2,
+        1,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "frames": 330
+    },
+    {
+      "sequence": [
+        6,
+        1,
+        2,
+        3,
+        4,
+        5,
+        7
+      ],
+      "frames": 308
+    },
+    {
+      "sequence": [
+        3,
+        2,
+        1,
+        4,
+        5,
+        6,
+        7
+      ],
+      "frames": 5
+    },
+    {
+      "sequence": [
+        1,
+        3,
+        2,
+        4,
+        5,
+        6,
+        7
+      ],
+      "frames": 3
+    },
+    {
+      "sequence": [
+        4,
+        2,
+        1,
+        3,
+        5,
+        6,
+        7
+      ],
+      "frames": 1
+    },
+    {
+      "sequence": [
+        5,
+        2,
+        1,
+        3,
+        4,
+        6,
+        7
+      ],
+      "frames": 1
+    }
+  ],
+  "whole_capture_decode_stats": {
+    "usb_events": 13700,
+    "pending_out_urbs": 0,
+    "frames": 6834,
+    "other_frames": 43,
+    "trailing_in_bytes": 0,
+    "trailing_out_bytes": 0
+  },
+  "whole_capture_tcpdump_log": "tcpdump: listening on usbmon1, link-type USB_LINUX_MMAPPED (USB with padded Linux header), snapshot length 245824 bytes\n13700 packets captured\n13700 packets received by filter\n0 packets dropped by kernel\n",
+  "unidentifiable": [
+    "Actual CAN/motor packet loss: no sequence numbers or CAN-side ground truth",
+    "Command-to-motor response latency: no per-command echo/correlation, constant HOLD is not latency excitation",
+    "Device internal sample age; recorded times are USB host timestamps",
+    "Application generation-to-USB-submit delay; no per-command generation timestamp"
+  ],
+  "definitions": {
+    "unique_USB_times": "Distinct USB arrival times carrying this motor ID; not necessarily distinct motor internal samples",
+    "silence_with_edges": "No-new-feedback intervals including observation boundaries; last interval is censored",
+    "fresh_time_fraction": "Fraction of window covered by [arrival,arrival+threshold], using prior-window arrivals too",
+    "bins_50ms_coverage": "Fraction of 50ms bins with at least one arrival; last partial bin included; NOT packet delivery ratio",
+    "USB_completion_latency": "Host USB submit to successful transfer completion; NOT motor execution delay"
+  },
+  "plots_generated": true
+}

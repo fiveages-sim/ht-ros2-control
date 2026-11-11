@@ -8,6 +8,7 @@
 #include <libserialport.h>
 #include <dirent.h>
 #include <algorithm>
+#include <atomic>
 
 namespace hightorque_robot
 {
@@ -24,7 +25,7 @@ namespace hightorque_robot
         std::string SDK_version2 = "4.6.0"; // SDK版本
         std::condition_variable error_check_cv;
         std::mutex error_check_mutex;
-        bool error_check_flag = false;
+        std::atomic<bool> error_check_flag{false};
         std::thread error_check_thread_;
         fun_version fun_v = fun_v1;
         uint16_t slave_v = COMBINE_VERSION(3, 0, 0);
@@ -47,6 +48,12 @@ namespace hightorque_robot
         /// @param usb_select  控制盒选择："auto" 或 USB 路径（如 "1-1.2" / "usb-0:1.2"）
         robot(const std::string& config_path, const std::string& usb_select = "auto");
         ~robot();
+        // Owner must quiesce its command producer before suspending SDK threads.
+        void stop_reconnect();
+        // Sticky fault: a new explicit hardware configuration is required.
+        bool communication_fault();
+        void pause_background();
+        void resume_background();
 
     private:
         void init_robot(const std::string& config_path);
@@ -78,6 +85,7 @@ namespace hightorque_robot
 
         void detect_motor_limit();
         void motor_send_cmd();       
+        size_t diagnostic_state_query();
         void send_get_motor_state_cmd();
         void send_get_motor_version_cmd();
         void check_motor_connection_position();

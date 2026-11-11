@@ -1,18 +1,29 @@
 #include "serial_driver.hpp"
 #include <cstring>
 #include <iostream>
+#include <chrono>
+#include <algorithm>
+#include <termios.h>
+#include <iomanip>
 
 namespace
 {
 // 与原 serial::Timeout::simpleTimeout(1000) 语义一致：读/写超时 1000 ms
 constexpr int kSerialTimeoutMs = 1000;
+constexpr int kReadSliceMs = 50;
 
 // libserialport 返回负值表示错误；错误时抛出异常以保持原有 try/catch 语义
 void check_sp(sp_return r, const char *what)
 {
     if (r < SP_OK)
     {
-        throw std::runtime_error(std::string(what) + ": " + sp_last_error_message());
+        std::string message = std::string(what) + ": libserialport code " + std::to_string(r);
+        if (r == SP_ERR_FAIL)
+        {
+            char *detail = sp_last_error_message();
+            if (detail) { message += ": " + std::string(detail); sp_free_error_message(detail); }
+        }
+        throw std::runtime_error(message);
     }
 }
 }  // namespace
@@ -31,6 +42,34 @@ serial_driver::serial_driver(std::string *port, uint32_t baudrate, bool _canport
         }
         check_sp(sp_open(_ser, SP_MODE_READ_WRITE), "sp_open");
         check_sp(sp_set_baudrate(_ser, static_cast<int>(baudrate)), "sp_set_baudrate");
+        // Preserve evidence before changing inherited flow control. No extra port open.
+        int serial_fd = -1;
+        check_sp(sp_get_port_handle(_ser, &serial_fd), "sp_get_port_handle");
+        const auto audit_flow = [&](const char *stage, bool require_disabled) {
+            struct termios settings{};
+            if (tcgetattr(serial_fd, &settings) != 0) {
+                throw std::runtime_error("Flow control tcgetattr failed");
+            }
+            const bool ixon = settings.c_iflag & IXON;
+            const bool ixoff = settings.c_iflag & IXOFF;
+            const bool ixany = settings.c_iflag & IXANY;
+            const bool rtscts = settings.c_cflag & CRTSCTS;
+            std::cerr << "SERIAL_FLOW_CONFIG port=" << *port << " stage=" << stage
+                      << " steady_us=" << std::chrono::duration_cast<std::chrono::microseconds>(
+                             std::chrono::steady_clock::now().time_since_epoch()).count()
+                      << " iflag=" << settings.c_iflag << " cflag=" << settings.c_cflag
+                      << " ixon=" << ixon << " ixoff=" << ixoff << " ixany=" << ixany
+                      << " crtscts=" << rtscts
+                      << " vstart=" << static_cast<unsigned int>(settings.c_cc[VSTART])
+                      << " vstop=" << static_cast<unsigned int>(settings.c_cc[VSTOP]) << std::endl;
+            if (require_disabled && (ixon || ixoff || ixany || rtscts)) {
+                throw std::runtime_error("Flow control readback is not disabled");
+            }
+        };
+        audit_flow("before", false);
+        check_sp(sp_set_flowcontrol(_ser, SP_FLOWCONTROL_NONE), "sp_set_flowcontrol(NONE)");
+        audit_flow("after", true);
+
         init_flag = true;
     }
     catch (const std::exception &e)
@@ -57,13 +96,13 @@ void serial_driver::recv_1for6_42()
         cdc_tr_message_head_data_s SOF{};
         try
         {
-            read_bytes(&(SOF.head), 1);
+            if (!read_bytes(&(SOF.head), 1)) { continue; }
             if (SOF.head == 0xF7)      //  head
             {
-                read_bytes(&(SOF.cmd), 4);
+                if (!read_bytes(&(SOF.cmd), 4)) { continue; }
                 if (SOF.crc8 == Get_CRC8_Check_Sum((uint8_t *)&(SOF.cmd), 3, 0xFF)) // cmd_id
                 {
-                    read_bytes((uint8_t *)&CRC16, 2);
+                    if (!read_bytes((uint8_t *)&CRC16, 2)) { continue; }
                     // 防栈溢出：帧头声明的载荷长度不能超过接收缓冲区上限。
                     // 非法/错帧（如失步、噪声把 0xF7 误判为帧头）可能带来超大 len，
                     // 无校验直接 read_bytes() 会把栈写穿导致 SIGSEGV。
@@ -76,7 +115,7 @@ void serial_driver::recv_1for6_42()
                         //           << "), discarding & resyncing" << "\033[0m" << std::endl;
                         continue;
                     }
-                    read_bytes((uint8_t *)&cdc_rx_message_data, SOF.len);
+                    if (!read_bytes((uint8_t *)&cdc_rx_message_data, SOF.len)) { continue; }
                     if (CRC16 != crc_ccitt(0xFFFF, (const uint8_t *)&cdc_rx_message_data, SOF.len))
                     {
                         memset(&cdc_rx_message_data, 0, sizeof(cdc_rx_message_data));
@@ -245,8 +284,8 @@ void serial_driver::recv_1for6_42()
         catch(const std::exception& e)
         {
             std::cerr << "\033[1;31m" << e.what() << "\033[0m" << '\n';
-            close();
             error_flag = true;
+            init_flag = false;
             break;
         }
     }
@@ -271,7 +310,7 @@ void serial_driver::close(void)
 {
     if (_ser != nullptr)
     {
-        sp_flush(_ser, SP_BUF_BOTH);
+        sp_flush(_ser, SP_BUF_INPUT); // Do not discard queued stop/BRAKE writes.
         sp_close(_ser);
         sp_free_port(_ser);
         _ser = nullptr;
@@ -288,18 +327,22 @@ void serial_driver::send_2(cdc_tr_message_s *cdc_tr_message)
     {
         if (_ser != nullptr)
         {
-            check_sp(sp_blocking_write(_ser,
-                        reinterpret_cast<const uint8_t *>(&cdc_tr_message->head.s.head),
-                        cdc_tr_message->head.s.len + sizeof(cdc_tr_message_head_s),
-                        kSerialTimeoutMs),
-                    "sp_blocking_write");
+            const size_t length = cdc_tr_message->head.s.len + sizeof(cdc_tr_message_head_s);
+            const auto written = sp_blocking_write(_ser,
+                reinterpret_cast<const uint8_t *>(&cdc_tr_message->head.s.head), length, kSerialTimeoutMs);
+            check_sp(written, "sp_blocking_write");
+            if (static_cast<size_t>(written) != length)
+            {
+                throw std::runtime_error("sp_blocking_write: incomplete write/timeout");
+            }
+            ++completed_writes;
         }
     }
     catch(const std::exception& e)
     {
         std::cerr << e.what() << '\n';
-        close();
         error_flag = true;
+        init_flag = false;
     }
 }
 
@@ -337,20 +380,23 @@ void serial_driver::port_fdcan_state_init(cdc_rx_fdcan_state_s *_p_fdcan_state)
     p_fdcan_state->tx_err_num = 0;
 }
 
-void serial_driver::read_bytes(uint8_t *buffer, size_t size)
+bool serial_driver::read_bytes(uint8_t *buffer, size_t size)
 {
-    if (_ser == nullptr || size == 0)
-    {
-        return;
-    }
+    if (size == 0) { return true; }
+    if (_ser == nullptr || !init_flag.load()) { return false; }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(kSerialTimeoutMs);
     size_t bytes_read = 0;
-    while (bytes_read < size)
+    while (init_flag.load() && bytes_read < size)
     {
-        const sp_return r = sp_blocking_read(_ser, buffer + bytes_read, size - bytes_read, kSerialTimeoutMs);
-        if (r <= 0)
-        {
-            throw std::runtime_error(std::string("sp_blocking_read: ") + sp_last_error_message());
-        }
+        const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+            deadline - std::chrono::steady_clock::now()).count();
+        if (remaining <= 0) { return false; }
+        const auto slice = static_cast<unsigned int>(std::min<long long>(kReadSliceMs, remaining));
+        const auto r = sp_blocking_read(_ser, buffer + bytes_read, size - bytes_read, slice);
+        check_sp(r, "sp_blocking_read"); // r==0 is normal idle time, never a disconnect.
         bytes_read += static_cast<size_t>(r);
     }
+    // Cancellation or a partial-frame deadline returns to SOF scanning; never
+    // decode a half-filled buffer. The owner joins this thread before close().
+    return init_flag.load() && bytes_read == size;
 }
