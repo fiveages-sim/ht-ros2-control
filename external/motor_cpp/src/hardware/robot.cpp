@@ -69,8 +69,6 @@ namespace hightorque_robot
         std::cout << "\033[1;32mThe Serial type is " << Serial_Type << "\033[0m" << std::endl;
 
         init_ser();
-        error_check_flag = true;
-        error_check_thread_ = std::thread(&robot::check_error, this);
         auto it = robot_params.CANboards.begin();
         for (int i = 1; i <= CANboard_num; i++, it++)
         {
@@ -111,49 +109,98 @@ namespace hightorque_robot
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
         std::cout << "\033[1;32mThe robot has " << Motors.size() << " motors\033[0m" << std::endl;
+        error_check_flag = true;
+        error_check_thread_ = std::thread(&robot::check_error, this);
         std::cout << "robot init" << std::endl;
     }
 
 
-    robot::~robot()
+    void robot::stop_reconnect()
     {
-        if (robot_params.exit_motor_brake_flag)
         {
-            set_brake();
-            set_brake();
-            set_brake();
-            printf("motor brake\n");
+            std::lock_guard<std::mutex> lock(error_check_mutex);
+            error_check_flag = false;
         }
-        else
+        error_check_cv.notify_all();
+        if (error_check_thread_.joinable()) { error_check_thread_.join(); }
+    }
+
+    void robot::pause_background()
+    {
+        // Stop the object-mutating recovery worker before touching receivers.
+        stop_reconnect();
+        for (auto *s : ser) { if (s) { s->set_run_flag(false); } }
+        for (auto &thread : ser_recv_threads) { if (thread.joinable()) { thread.join(); } }
+        ser_recv_threads.clear();
+        std::cout << "SDK_BACKGROUND_PAUSED" << std::endl;
+    }
+
+    void robot::resume_background()
+    {
+        if (communication_fault()) { throw std::runtime_error("Refusing resume after communication fault"); }
+        if (error_check_thread_.joinable()) { return; }
+        if (ser.empty() || Motors.empty())
         {
-            set_stop();
-            set_stop();
-            set_reset();
-            printf("motor stop\n");
+            throw std::runtime_error("Refusing resume without configured ports and motors");
         }
-
-
-        for (serial_driver *s : ser)
+        for (auto *s : ser)
         {
-            if (s) 
+            if (!s || s->is_serial_error())
             {
-                s->set_run_flag(false);
-                s->close();
+                throw std::runtime_error("Refusing resume after serial fault; reconfigure hardware explicitly");
             }
         }
-
-        for (auto &thread : ser_recv_threads)
+        if (ser_recv_threads.empty())
         {
-            if (thread.joinable())
-                thread.join();
+            for (auto *s : ser)
+            {
+                s->set_run_flag(true);
+                ser_recv_threads.emplace_back(&serial_driver::recv_1for6_42, s);
+            }
         }
-
-        error_check_flag = false;
-        if(error_check_thread_.joinable())
-        {
-            error_check_thread_.join(); 
-        }
+        error_check_flag = true;
+        error_check_thread_ = std::thread(&robot::check_error, this);
     }
+
+    robot::~robot()
+    {
+        // Receiver/recovery threads must not close/replace ports during release.
+        pause_background();
+        try
+        {
+            if (communication_fault())
+            {
+                std::cerr << "SDK_FAULT_CLOSE_NO_MOTION: no stop/reset/brake retry" << std::endl;
+            }
+            else if (robot_params.exit_motor_brake_flag)
+            {
+                std::vector<uint64_t> before;
+                for (auto *s : ser) { before.push_back(s ? s->completed_write_count() : 0); }
+                std::cout << "SDK_BRAKE_WRITE_ATTEMPT" << std::endl;
+                set_brake(); set_brake(); set_brake();
+                bool ok = !ser.empty() && !Motors.empty();
+                for (size_t i = 0; i < ser.size(); ++i)
+                {
+                    ok = ok && ser[i] && !ser[i]->is_serial_error() &&
+                        ser[i]->completed_write_count() >= before[i] + 3;
+                }
+                std::cout << (ok ? "SDK_BRAKE_WRITES_COMPLETED_NO_DEVICE_ACK" : "SDK_BRAKE_WRITE_UNCONFIRMED") << std::endl;
+            }
+            else
+            {
+                set_stop(); set_stop(); set_reset();
+                std::cout << "motor stop" << std::endl;
+            }
+        }
+        catch (const std::exception &e)
+        {
+            std::cerr << "SDK_RELEASE_ERROR: " << e.what() << std::endl;
+        }
+        for (auto *s : ser) { delete s; }
+        ser.clear();
+        std::cout << "SDK_SERIAL_CLOSED" << std::endl;
+    }
+
 
     void robot::detect_motor_limit()
     {
@@ -183,6 +230,7 @@ namespace hightorque_robot
 
     void robot::motor_send_cmd()
     {
+        if (communication_fault()) { throw std::runtime_error("SDK communication fault: command rejected"); }
         if(!motor_position_limit_flag && !motor_torque_limit_flag)
         {
             for (canboard &cb : CANboards)
@@ -534,128 +582,32 @@ namespace hightorque_robot
         }
     }
 
-    typedef enum{
-        error_check = 0,    // 正常
-        error_clear,        // 报错，清理     
-        error_wait_dev,     // 报错，等待设备
-        error_reconnect,    // 报错，重连
-    }error_run_state_e;
-
-    void robot::check_error(void)
+    bool robot::communication_fault()
     {
-        std::mutex robot_mutex;
-        while(error_check_flag)
+        if (ser.empty()) { return true; }
+        for (auto* s : ser)
         {
-            static error_run_state_e last_error_run_state = error_reconnect;
-            static error_run_state_e error_run_state = error_check;// 0：正常，1：报错,清理，2：重连
-            switch(error_run_state)
+            if (!s || s->is_serial_error())
             {
-                case 0:
-                {
-                    bool serial_error = false;
-                    for (serial_driver *s : ser)
-                    {
-                        if (s->is_serial_error())
-                        {
-                            serial_error = true;
-                            break;
-                        }
-                    }
-                    if(serial_error)
-                    {
-                        serial_error = false;
-                        error_run_state = error_clear;
-                        std::cerr << "\033[1;31mSerial error\033[0m" << std::endl;
-                    }
-                }
-                break;
-                case error_clear:
-                {
-                    std::lock_guard<std::mutex> lock(robot_mutex);
-                    for (serial_driver *s : ser)
-                    {
-                        s->set_run_flag(false);
-                        // s->close();
-                    }
-                    for (auto &_thread : ser_recv_threads)
-                    {
-                        if (_thread.joinable())
-                        {
-                            _thread.join();
-                        }
-                    }
-
-                    CANboards.clear();
-                    CANPorts.clear();
-                    Motors.clear();
-        
-                    for (serial_driver *s : ser)
-                    {
-                        delete s;
-                    }
-
-                    ser.clear();
-                    error_run_state = error_wait_dev;
-                    std::cerr << "\033[1;31mclear obj and thread\033[0m" << std::endl;
-                }
-                break;
-                case error_wait_dev:
-                {
-                    int exist_num = this->check_serial_dev_exist(8);
-                    std::cerr << "\033[1;31mfind "  << exist_num << " device(s)\033[0m" << std::endl;
-                    if (exist_num < 4)
-                    {
-                        std::cerr << "\033[1;31mCannot find 4 motor serial port, please check if the USB connection is normal.\033[0m" << std::endl;
-                    }
-                    else
-                    {
-                        std::cout << "file all diveces" << std::endl;
-                        error_run_state = error_reconnect;
-                        std::this_thread::sleep_for(std::chrono::milliseconds(500));
-                    }
-                }
-                break;
-                case error_reconnect:
-                {
-                    std::cerr << "\033[1;31mreconnect start \033[0m" << std::endl;
-                    this->init_ser();
-                    auto it = robot_params.CANboards.begin();
-                    for (int i = 1; i <= CANboard_num; i++, it++)
-                    {
-                        CANboards.push_back(canboard(i, &ser, it->second, canport_error_output_flag));
-                    }
-
-                    for (canboard &cb : CANboards)
-                    {
-                        cb.push_CANport(&CANPorts);
-                    }
-                    for (canport *cp : CANPorts)
-                    {
-                        // std::thread(&canport::send, &cp);
-                        cp->puch_motor(&Motors);
-                    }
-                    set_port_motor_num(); // 设置通道上挂载的电机数，并获取主控板固件版本号
-                    check_motor_connection_version();  // 检测电机连接是否正常
-                    error_run_state = error_check;
-                    std::cerr << "\033[1;31mreconnect end\033[0m" << std::endl;
-                }
-                break;
-                default:
-                break;
+                return true;
             }
-            // std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        }
+        return false;
+    }
+
+    void robot::check_error()
+    {
+        // Never clear/rebuild objects used by the command/feedback threads.
+        while (error_check_flag.load())
+        {
+            if (communication_fault())
+            {
+                std::cerr << "SDK_TRANSPORT_UNAVAILABLE: serial I/O failed; no automatic object rebuild" << std::endl;
+                return;
+            }
             std::unique_lock<std::mutex> lock(error_check_mutex);
-            if (error_check_cv.wait_for(lock, std::chrono::milliseconds(1000), 
-                [this]{ return !error_check_flag; })) {
-                // 收到退出信号，立即退出
-                break;
-            }
-            // only state chaged, print state.
-            if(error_run_state != last_error_run_state)
-            {
-                last_error_run_state = error_run_state;
-                std::cout << "error_run_state = " << error_run_state << std::endl;
-            }
+            error_check_cv.wait_for(lock, std::chrono::milliseconds(10),
+                                   [this]{ return !error_check_flag.load(); });
         }
     }
 
@@ -695,6 +647,15 @@ namespace hightorque_robot
     }
     
     
+    size_t robot::diagnostic_state_query()
+    {
+        // IO owner only. Retain all sticky faults; no reconnect, enable, or motion.
+        size_t written = 0;
+        for (auto* port : CANPorts)
+            if (port && port->diagnostic_state_query()) ++written;
+        return written;
+    }
+
     void robot::send_get_motor_state_cmd()
     {
         if (fun_v >= fun_v4)

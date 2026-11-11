@@ -311,6 +311,20 @@ int canport::set_conf_write(int id)
 }
 
 
+// Dedicated query frame: never flush the shared motion buffer, even after a latch.
+bool canport::diagnostic_state_query()
+{
+    if (!ser || ser->is_serial_error() || !ser->get_run_flag() || fun_v < fun_v2) return false;
+    cdc_tr_message_s query{};
+    query.head.s.head = 0xF7;
+    query.head.s.cmd = fun_v >= fun_v4 ? MODE_MOTOR_STATE2 : MODE_MOTOR_STATE;
+    query.head.s.len = 1;
+    query.data.data[0] = 0x7f;
+    const auto before = ser->completed_write_count();
+    ser->send_2(&query);
+    return !ser->is_serial_error() && ser->completed_write_count() == before + 1;
+}
+
 void canport::send_get_motor_state_cmd()
 {
     if (cdc_tr_message.head.s.cmd != MODE_MOTOR_STATE)

@@ -1,3 +1,5 @@
+#include "io_cycle.hpp"
+#include <cstdlib>
 #include "panthera_hardware_interface.hpp"
 
 #include <algorithm>
@@ -882,12 +884,14 @@ void IoLoop::threadLoop()
     {
       break;
     }
+    const bool has_command = pending_;
     pending_ = false;
     lock.unlock();
 
-    refreshGains();       // 周期同步 rqt 调节的 kp/kd
-    sendMotorCommands();  // 透传命令；无命令时重发上次指令保持电机活跃
-    pollOnce();           // 阻塞查询反馈，刷新 latest_*
+    refreshGains();  // Preserve upstream gain parameter handling.
+    runIoCycle(has_command,
+      [this]() { sendMotorCommands(); refreshFeedbackCache(); },
+      [this]() { pollOnce(); });
 
     lock.lock();
   }
@@ -908,17 +912,30 @@ void IoLoop::pollOnce()
 {
   try
   {
-    // 阻塞式查询电机状态（内部异步收包线程维护缓存）
+    // The SDK query method transmits once. Never resend its command buffer.
     robot_.send_get_motor_state_cmd();
-    robot_.motor_send_cmd();
+  }
+  catch (const std::exception & e)
+  {
+    RCLCPP_ERROR_THROTTLE(logger_, *clock_, 1000, "Failed to query robot state: %s", e.what());
+  }
+  refreshFeedbackCache();
+}
 
+void IoLoop::refreshFeedbackCache()
+{
+  try
+  {
     // 读取电机状态缓存，换算成关节单位（夹爪 rad -> m，其余 1:1）
     std::vector<double> positions(layout_.motor_count(), 0.0);
     std::vector<double> velocities(layout_.motor_count(), 0.0);
     std::vector<double> efforts(layout_.motor_count(), 0.0);
+    std::vector<motor::FeedbackSnapshot> snapshots;
+    snapshots.reserve(layout_.motor_count());
     for (size_t motor_index = 0; motor_index < layout_.motor_count(); ++motor_index)
     {
-      auto * state = robot_.Motors[motor_index]->get_current_motor_state();
+      snapshots.push_back(robot_.Motors[motor_index]->feedback_snapshot());
+      const auto * state = &snapshots.back().state;
       if (layout_.isGripper(motor_index))
       {
         positions[motor_index] = toJointPosition(motor_index, state->position);
@@ -945,10 +962,33 @@ void IoLoop::pollOnce()
         }
       }
     }
+    // Optional receive diagnostics use the SAME snapshots as the cache update.
+    // Receive time is not motor-internal sample time or a control timeout policy.
+    const char * diagnostic = std::getenv("PANTHERA_DIAGNOSTIC_POLL");
+    const auto now = std::chrono::steady_clock::now();
+    if (diagnostic && std::string(diagnostic) == "1" &&
+      now - last_feedback_audit_ >= std::chrono::milliseconds(100))
+    {
+      last_feedback_audit_ = now;
+      for (size_t i = 0; i < snapshots.size(); ++i)
+      {
+        const auto & snapshot = snapshots[i];
+        const auto received_us = std::chrono::duration_cast<std::chrono::microseconds>(
+          snapshot.received.time_since_epoch()).count();
+        const auto age_us = std::chrono::duration_cast<std::chrono::microseconds>(
+          now - snapshot.received).count();
+        RCLCPP_INFO(logger_,
+          "UPSTREAM_WEB_FEEDBACK motor_id=%zu rx_count=%lu rx_steady_us=%ld age_us=%ld mode=%u fault=%u q=%.9f dq=%.9f effort=%.9f",
+          i + 1, static_cast<unsigned long>(snapshot.state.num),
+          static_cast<long>(received_us), static_cast<long>(age_us),
+          static_cast<unsigned>(snapshot.state.mode), static_cast<unsigned>(snapshot.state.fault),
+          snapshot.state.position, snapshot.state.velocity, snapshot.state.torque);
+      }
+    }
   }
   catch (const std::exception & e)
   {
-    RCLCPP_ERROR_THROTTLE(logger_, *clock_, 1000, "Failed to poll robot state: %s", e.what());
+    RCLCPP_ERROR_THROTTLE(logger_, *clock_, 1000, "Failed to snapshot robot feedback: %s", e.what());
   }
 }
 

@@ -7,12 +7,14 @@
 #include "motor.hpp"
 #include <unordered_set>
 #include <map>
+#include <atomic>
 
 class serial_driver
 {
 private:
     struct sp_port *_ser = nullptr;
-    bool init_flag;
+    std::atomic<bool> init_flag{false};
+    std::atomic<uint64_t> completed_writes{0};
     std::map<int, motor *> Map_Motors_p;
     uint16_t *p_port_version = NULL;
     std::unordered_set<int> *p_motor_id = NULL;
@@ -21,14 +23,14 @@ private:
     cdc_rx_fdcan_state_s *p_fdcan_state = NULL;
     bool canport_error_output_flag = false;
 
-    // 阻塞读取 size 字节，超时/出错时抛出 std::runtime_error
-    void read_bytes(uint8_t *buffer, size_t size);
+    // False means bounded timeout/cancellation; only actual I/O errors throw.
+    bool read_bytes(uint8_t *buffer, size_t size);
 
 public:
     serial_driver(std::string *port, uint32_t baudrate, bool _canport_error_output_flag);
     ~serial_driver();
 
-    bool error_flag;
+    std::atomic<bool> error_flag{false};
     void send_2(cdc_tr_message_s *cdc_tr_message);
     uint16_t return_data_len(uint8_t cmd_id);
     void recv_1for6_42();
@@ -39,6 +41,7 @@ public:
     void port_fdcan_state_init(cdc_rx_fdcan_state_s *_p_fdcan_state);
     serial_driver(const serial_driver &) = delete;
     serial_driver &operator=(const serial_driver &) = delete;
+    uint64_t completed_write_count() const { return completed_writes.load(); }
     bool is_serial_error(void);
     void set_run_flag(bool flag);
     bool get_run_flag(void);

@@ -166,6 +166,7 @@ private:
   void threadLoop();
   void sendMotorCommands();
   void refreshGains();
+  void refreshFeedbackCache();
   double toMotorPosition(size_t index, double joint_value) const;
   double toJointPosition(size_t index, double motor_value) const;
   double toMotorVelocity(size_t index, double joint_value) const;
@@ -194,6 +195,7 @@ private:
   std::vector<double> last_motor_command_positions_;
   bool has_last_motor_command_positions_ = false;
   int gain_refresh_counter_ = 0;
+  std::chrono::steady_clock::time_point last_feedback_audit_{};
 };
 
 }  // namespace detail
