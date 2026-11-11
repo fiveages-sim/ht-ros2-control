@@ -24,4 +24,4 @@ Historical driver base: 93ed844; B code-only fix: 986df1a894883bd78805264a3d50d6
 
 This minimal correction improves query load but does not fix all uneven feedback: J6 and gripper still had long silence. The A/B sample is a single paired comparison, not randomized or long-duration validation. No control gains, packet encoding, shutdown-home behavior, SDK lifetime/reconnect or scheduling change is needed for the minimal pollOnce fix. Similar shutdown-home priming calls are intentionally outside this high-frequency, historically measured change.
 
-The broader asynchronous transport proposal is separate and must not be attributed to this one-line correction. The current PR adds a hardware-free source-body/counting-sink regression; it does not activate hardware or simulate the full serial/controller loop.
+The broader asynchronous transport proposal is separate and must not be attributed to this one-line correction. The separate minimal PR adds a hardware-free source-body/counting-sink regression; the async proposal has its own snapshot/dispatch and serialization tests. Neither test activates hardware or simulates the full serial/controller loop.
