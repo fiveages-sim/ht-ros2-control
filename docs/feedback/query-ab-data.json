@@ -1,0 +1,93 @@
+[
+  {
+    "motor": "J1",
+    "A_rx_rows": 7500,
+    "A_unique_USB_times": 2501,
+    "A_unique_USB_rate_Hz": 500.2,
+    "A_max_silence_including_edges_ms": 2.148,
+    "A_bins_50ms_coverage": 1.0,
+    "B_rx_rows": 5000,
+    "B_unique_USB_times": 2500,
+    "B_unique_USB_rate_Hz": 500.0,
+    "B_max_silence_including_edges_ms": 2.166,
+    "B_bins_50ms_coverage": 1.0
+  },
+  {
+    "motor": "J2",
+    "A_rx_rows": 6941,
+    "A_unique_USB_times": 2501,
+    "A_unique_USB_rate_Hz": 500.2,
+    "A_max_silence_including_edges_ms": 2.148,
+    "A_bins_50ms_coverage": 1.0,
+    "B_rx_rows": 4988,
+    "B_unique_USB_times": 2500,
+    "B_unique_USB_rate_Hz": 500.0,
+    "B_max_silence_including_edges_ms": 2.166,
+    "B_bins_50ms_coverage": 1.0
+  },
+  {
+    "motor": "J3",
+    "A_rx_rows": 2954,
+    "A_unique_USB_times": 2496,
+    "A_unique_USB_rate_Hz": 499.2,
+    "A_max_silence_including_edges_ms": 4.044,
+    "A_bins_50ms_coverage": 1.0,
+    "B_rx_rows": 3664,
+    "B_unique_USB_times": 2500,
+    "B_unique_USB_rate_Hz": 500.0,
+    "B_max_silence_including_edges_ms": 2.166,
+    "B_bins_50ms_coverage": 1.0
+  },
+  {
+    "motor": "J4",
+    "A_rx_rows": 54,
+    "A_unique_USB_times": 54,
+    "A_unique_USB_rate_Hz": 10.8,
+    "A_max_silence_including_edges_ms": 432.025,
+    "A_bins_50ms_coverage": 0.39,
+    "B_rx_rows": 2887,
+    "B_unique_USB_times": 2499,
+    "B_unique_USB_rate_Hz": 499.8,
+    "B_max_silence_including_edges_ms": 4.0,
+    "B_bins_50ms_coverage": 1.0
+  },
+  {
+    "motor": "J5",
+    "A_rx_rows": 53,
+    "A_unique_USB_times": 53,
+    "A_unique_USB_rate_Hz": 10.6,
+    "A_max_silence_including_edges_ms": 568.053,
+    "A_bins_50ms_coverage": 0.33,
+    "B_rx_rows": 836,
+    "B_unique_USB_times": 836,
+    "B_unique_USB_rate_Hz": 167.2,
+    "B_max_silence_including_edges_ms": 46.022,
+    "B_bins_50ms_coverage": 1.0
+  },
+  {
+    "motor": "J6",
+    "A_rx_rows": 4,
+    "A_unique_USB_times": 4,
+    "A_unique_USB_rate_Hz": 0.8,
+    "A_max_silence_including_edges_ms": 2329.21625,
+    "A_bins_50ms_coverage": 0.04,
+    "B_rx_rows": 94,
+    "B_unique_USB_times": 94,
+    "B_unique_USB_rate_Hz": 18.8,
+    "B_max_silence_including_edges_ms": 347.998,
+    "B_bins_50ms_coverage": 0.56
+  },
+  {
+    "motor": "Gripper",
+    "A_rx_rows": 1,
+    "A_unique_USB_times": 1,
+    "A_unique_USB_rate_Hz": 0.2,
+    "A_max_silence_including_edges_ms": 3266.87225,
+    "A_bins_50ms_coverage": 0.01,
+    "B_rx_rows": 31,
+    "B_unique_USB_times": 31,
+    "B_unique_USB_rate_Hz": 6.2,
+    "B_max_silence_including_edges_ms": 1412.2315,
+    "B_bins_50ms_coverage": 0.2
+  }
+]

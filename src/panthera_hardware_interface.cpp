@@ -909,8 +909,8 @@ void IoLoop::pollOnce()
   try
   {
     // 阻塞式查询电机状态（内部异步收包线程维护缓存）
+    // The SDK query method transmits the request; do not resend its buffer.
     robot_.send_get_motor_state_cmd();
-    robot_.motor_send_cmd();
 
     // 读取电机状态缓存，换算成关节单位（夹爪 rad -> m，其余 1:1）
     std::vector<double> positions(layout_.motor_count(), 0.0);

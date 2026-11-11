@@ -74,6 +74,13 @@ ament_export_dependencies(
 )
 
 if(BUILD_TESTING)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(NAME query_send_oracle
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/query_send_oracle.py
+      --source-root ${CMAKE_CURRENT_SOURCE_DIR}
+      --output ${CMAKE_CURRENT_BINARY_DIR}/query-send-oracle
+      --cxx ${CMAKE_CXX_COMPILER})
+  set_tests_properties(query_send_oracle PROPERTIES TIMEOUT 30)
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)
